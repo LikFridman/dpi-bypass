@@ -115,6 +115,10 @@ func pause() {
 }
 
 func banner() {
+	if guiMode {
+		say("dpi-bypass %s - локальный обход DPI на базе winws (zapret)", version)
+		return
+	}
 	say(col(cBold+cCyan, `
   ____  ____ ___   ____
  |  _ \|  _ \_ _| | __ ) _   _ _ __   __ _ ___ ___

@@ -167,6 +167,11 @@ h2{margin:0;font-size:15px;font-weight:700}
 .dlg{width:min(460px,90vw);border-radius:24px;padding:22px;transform:scale(.92) translateY(10px);transition:transform .5s var(--spring);background:rgba(30,34,62,.72)}
 .modal.on .dlg{transform:none}
 .dlg p{margin:0 0 18px;white-space:pre-line;font-size:15px}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:999px;border:3px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.26);background-clip:padding-box;border:3px solid transparent}
+#nav2 .nv.on{background:rgba(111,140,255,.3);box-shadow:inset 1px 1px 0 rgba(255,255,255,.18),0 6px 24px rgba(111,140,255,.25)}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 @media (max-width:980px){.r .sg{display:none}.grid2{grid-template-columns:1fr}}
 </style>
@@ -426,6 +431,7 @@ function apply(st){
   const p=st.progress||{};
   $("#progBar").style.width=p.total?Math.round(p.cur*100/p.total)+"%":"0";
   $("#progLbl").textContent=p.total?(p.label||(p.cur+" из "+p.total)):(st.deepActive?"Готовлюсь...":"Не запущено");
+  if(st.deepActive&&!prev.deepActive){$("#deepLog").replaceChildren()}
   $("#dDeep").classList.toggle("show",!!st.deepActive);
   $$("[data-a]").forEach(b=>{const a=b.dataset.a;if(["diag","reselect","tune","deep","share","reset"].includes(a))b.disabled=!!st.busy});
 }
@@ -433,7 +439,9 @@ function cls(l){if(/^\[-\]|ошибк|не удалось|FAIL/i.test(l))return"
 function addLogs(lines){
   if(!lines||!lines.length)return;
   logLines=logLines.concat(lines).slice(-1500);
+  const deepOn=!!(S.deepActive||S.busy&&page==="deep");
   [["#fullLog",1500],["#homeLog",40],["#deepLog",200]].forEach(([sel,max])=>{
+    if(sel==="#deepLog"&&!deepOn)return;
     const box=$(sel);const near=box.scrollHeight-box.scrollTop-box.clientHeight<60;
     lines.forEach(l=>{const d=document.createElement("div");d.textContent=l;const c=cls(l);if(c)d.className=c+" new";else d.className="new";box.appendChild(d)});
     while(box.childElementCount>max)box.firstElementChild.remove();

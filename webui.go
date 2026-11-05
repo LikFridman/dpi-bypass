@@ -77,12 +77,13 @@ var (
 	wv          webview2.WebView
 	webUIActive bool
 
-	uiMu       sync.Mutex
-	uiLogs     []string // ещё не отправленные строки
-	uiHistory  []string // последние строки - для страницы после загрузки
-	uiPartial  string
-	uiEvents   []map[string]any
-	uiLastJSON string
+	uiMu        sync.Mutex
+	uiLogs      []string // ещё не отправленные строки
+	uiHistory   []string // последние строки - для страницы после загрузки
+	uiPartial   string
+	uiEvents    []map[string]any
+	uiLastJSON  string
+	uiPageReady atomic.Bool // страница загрузилась - можно слать обновления
 
 	engineGoroutine atomic.Bool
 	deepActive      atomic.Bool
@@ -364,6 +365,9 @@ func buildUIState() uiState {
 // pushLoop отправляет в страницу состояние, новые строки журнала и события
 func pushLoop() {
 	for range time.Tick(300 * time.Millisecond) {
+		if !uiPageReady.Load() {
+			continue
+		}
 		st := buildUIState()
 		b, _ := json.Marshal(st)
 		uiMu.Lock()
@@ -445,11 +449,13 @@ func webCall(cmd, arg string) (any, error) {
 		default:
 		}
 		st := buildUIState()
+		b, _ := json.Marshal(st)
 		uiMu.Lock()
 		hist := append([]string{}, uiHistory...)
 		uiLogs = nil
-		uiLastJSON = ""
+		uiLastJSON = string(b)
 		uiMu.Unlock()
+		uiPageReady.Store(true)
 		return uiPush{State: &st, Logs: hist}, nil
 	case "on":
 		m, _ := strconv.Atoi(arg)
