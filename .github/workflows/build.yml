@@ -74,13 +74,13 @@ jobs:
       # настоящая проверка на Windows: winws запускается со всеми нашими параметрами
       - name: Самопроверка (winws на Windows)
         id: selftest
-        continue-on-error: true
         shell: bash
         run: |
           timeout 900 ./dpi-bypass.exe selftest 2>&1 | tee selftest.txt
           exit ${PIPESTATUS[0]}
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: dpi-bypass-${{ env.VERSION }}
           path: |
