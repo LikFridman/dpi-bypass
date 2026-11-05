@@ -18,9 +18,10 @@ import (
 const tgDefaultPort = 1443
 
 var (
-	tgProxy      *TGProxy
-	tgWorkerHost string // свой Cloudflare Worker (dpi-bypass-data\telegram-worker.txt)
-	tgHinted     bool
+	tgCurrentLink string
+	tgProxy       *TGProxy
+	tgWorkerHost  string // свой Cloudflare Worker (dpi-bypass-data\telegram-worker.txt)
+	tgHinted      bool
 
 	//go:embed cloudflare-worker.js
 	workerJS string
@@ -154,6 +155,7 @@ func startTelegram(openLink bool, cfg *Config) {
 	tgProxy = px
 
 	link := tgLink(port, secret)
+	tgCurrentLink = link
 	good("Прокси для Telegram запущен на 127.0.0.1:%d", port)
 	say("      Telegram пойдёт через WebSocket к web.telegram.org - его маскирует обход DPI.")
 	say("      Ссылка для подключения (Telegram Desktop):")
@@ -185,6 +187,14 @@ func tgWatch() {
 		tgHint(false)
 		tgHinted = true
 	}
+}
+
+func stopTelegram() {
+	if tgProxy != nil {
+		tgProxy.Close()
+		tgProxy = nil
+	}
+	tgCurrentLink = ""
 }
 
 func tgStatusLine() string {

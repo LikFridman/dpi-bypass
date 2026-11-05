@@ -6,10 +6,10 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
-	"os"
-	"strings"
 	"io"
 	"net"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -329,4 +329,22 @@ func TestUpdateFileValid(t *testing.T) {
 			t.Errorf("неверная строка сервиса: %q", l)
 		}
 	}
+}
+
+func TestDeepCombos(t *testing.T) {
+	c := deepCombos()
+	if len(c) < 200 {
+		t.Fatalf("слишком мало комбинаций: %d", len(c))
+	}
+	ids := map[string]bool{}
+	for _, s := range c {
+		if !validStrategy(s) {
+			t.Errorf("комбинация не проходит проверку: %v", s.Args)
+		}
+		if ids[s.ID] {
+			t.Errorf("повтор id %s", s.ID)
+		}
+		ids[s.ID] = true
+	}
+	t.Logf("комбинаций: %d", len(c))
 }

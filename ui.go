@@ -26,7 +26,23 @@ func (l logWriter) Write(p []byte) (int, error) {
 }
 
 // initLog открывает лог (старый переименовывается в log-old.txt)
+// safeWriter не даёт ошибке одного вывода (например, нет консоли) остановить остальные
+type safeWriter struct{ w io.Writer }
+
+func (s safeWriter) Write(p []byte) (int, error) {
+	if s.w != nil {
+		s.w.Write(p)
+	}
+	return len(p), nil
+}
+
+var (
+	logFileWriter io.Writer = io.Discard
+	logPath       string
+)
+
 func initLog(path string) {
+	logPath = path
 	if st, err := os.Stat(path); err == nil && st.Size() > 0 {
 		os.Rename(path, strings.TrimSuffix(path, ".txt")+"-old.txt")
 	}
@@ -35,7 +51,8 @@ func initLog(path string) {
 		return
 	}
 	fmt.Fprintf(f, "dpi-bypass %s, запуск %s\n", version, time.Now().Format("02.01.2006 15:04:05"))
-	out = io.MultiWriter(os.Stdout, logWriter{f})
+	logFileWriter = logWriter{f}
+	out = io.MultiWriter(safeWriter{os.Stdout}, safeWriter{logFileWriter})
 }
 
 const (
@@ -90,6 +107,9 @@ func pad(s string, n int) string {
 }
 
 func pause() {
+	if guiMode {
+		return
+	}
 	fmt.Fprint(out, "\nНажми Enter, чтобы закрыть...")
 	readLine()
 }
@@ -108,12 +128,16 @@ func banner() {
 func usage() {
 	say(`Использование: dpi-bypass.exe [команда]
 
-  (без команды)  меню
+  (без команды)  окно с кнопками
+  console        меню в консоли
   1 | on         включить обход (VPN будет выключен)
   2 | vpn        включить обход вместе с VPN
   3 | off        выключить обход и завершить всё
   4 | check      диагностика: сайты, VPN, сеть
   auto           заново перебрать стратегии и запустить
+  tune           подобрать стратегии для новых сайтов из автосписка
+  scan [сайт]    глубокая проверка (сотни комбинаций, долго)
+  update         проверить и установить новую версию
   telegram       запустить и снова открыть ссылку прокси для Telegram
   reset          удалить сохранённые настройки
 

@@ -1,19 +1,30 @@
 {
-  "version": 1,
+  "version": 2,
   "updated": "2026-11-05",
   "strategies": [
     {
       "id": "u1",
       "name": "fake + fakedsplit, ttl 4 (обновление)",
-      "args": ["--dpi-desync=fake,fakedsplit", "--dpi-desync-split-pos=1,midsld", "--dpi-desync-ttl=4", "--dpi-desync-repeats=6"]
+      "args": [
+        "--dpi-desync=fake,fakedsplit",
+        "--dpi-desync-split-pos=1,midsld",
+        "--dpi-desync-ttl=4",
+        "--dpi-desync-repeats=6"
+      ]
     },
     {
       "id": "u2",
       "name": "multisplit + seqovl 652 по sniext (обновление)",
-      "args": ["--dpi-desync=multisplit", "--dpi-desync-split-pos=2,sniext+1", "--dpi-desync-split-seqovl=652"]
+      "args": [
+        "--dpi-desync=multisplit",
+        "--dpi-desync-split-pos=2,sniext+1",
+        "--dpi-desync-split-seqovl=652"
+      ]
     }
   ],
   "services": [
     "Roblox    | www.roblox.com | roblox.com rbxcdn.com rbx.com"
-  ]
+  ],
+  "presets": {},
+  "_presets_help": "Пресеты провайдеров: \"AS12389\": [\"s1\", \"u1\"] - какие стратегии пробовать первыми. Заполняется по результатам из задач (issues) с меткой «результат»."
 }

@@ -178,10 +178,12 @@ func resolve(host string) (ipInfo, bool) {
 
 // ---------- проверка одного хоста ----------
 
-const (
-	bodyLimit = 96 << 10
-	dialTO    = 5 * time.Second
-	totalTO   = 9 * time.Second
+const bodyLimit = 96 << 10
+
+// таймауты проверки (глубокая проверка временно их уменьшает)
+var (
+	dialTO  = 5 * time.Second
+	totalTO = 9 * time.Second
 )
 
 func isTimeout(err error) bool {

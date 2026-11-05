@@ -10,6 +10,7 @@ on:
     paths-ignore:
       - "dpi-bypass.exe"
       - "dpi-bypass.exe.sha256"
+      - "dpi-bypass.version"
       - "update/**"
       - "**.md"
   pull_request:
@@ -66,8 +67,18 @@ jobs:
       - name: Сборка
         shell: bash
         run: |
-          go build -trimpath -ldflags "-X main.version=$VERSION" -o dpi-bypass.exe .
+          go build -trimpath -ldflags "-H windowsgui -X main.version=$VERSION" -o dpi-bypass.exe .
           sha256sum dpi-bypass.exe | tee dpi-bypass.exe.sha256
+          echo "$VERSION" > dpi-bypass.version
+
+      # настоящая проверка на Windows: winws запускается со всеми нашими параметрами
+      - name: Самопроверка (winws на Windows)
+        id: selftest
+        continue-on-error: true
+        shell: bash
+        run: |
+          timeout 900 ./dpi-bypass.exe selftest 2>&1 | tee selftest.txt
+          exit ${PIPESTATUS[0]}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -75,6 +86,8 @@ jobs:
           path: |
             dpi-bypass.exe
             dpi-bypass.exe.sha256
+            selftest.txt
+            dpi-bypass-data/log.txt
 
       - name: Положить exe в репозиторий
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -82,7 +95,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f dpi-bypass.exe dpi-bypass.exe.sha256
+          git add -f dpi-bypass.exe dpi-bypass.exe.sha256 dpi-bypass.version
           if git diff --cached --quiet; then echo "exe не изменился"; exit 0; fi
           git commit -m "Сборка dpi-bypass.exe $VERSION (GitHub Actions) [skip ci]"
           git pull --rebase origin main

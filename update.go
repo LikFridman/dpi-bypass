@@ -29,6 +29,8 @@ type remoteUpdate struct {
 	Updated    string     `json:"updated"`
 	Strategies []Strategy `json:"strategies"`
 	Services   []string   `json:"services"` // строки в формате sites.txt
+	// пресеты провайдеров: "AS12389": ["s1", "u2"] - какие стратегии пробовать первыми
+	Presets map[string][]string `json:"presets"`
 }
 
 func updateCache() string { return filepath.Join(dataDir, "update.json") }
@@ -135,6 +137,16 @@ func applyUpdates() {
 			if os.WriteFile(sitesPath(), []byte(text), 0644) == nil {
 				newSvc = len(add)
 			}
+		}
+	}
+	for asn, ids := range ru.Presets {
+		if asnRe.MatchString(asn) && len(ids) <= 20 {
+			for i, id := range ids {
+				if !builtinID[id] && !strings.HasPrefix(id, "u-") {
+					ids[i] = "u-" + id // стратегии из обновления хранятся с префиксом u-
+				}
+			}
+			remotePresets[strings.ToUpper(asn)] = ids
 		}
 	}
 	msg := fmt.Sprintf("Обновления (%s, от %s): стратегий +%d", src, firstNonEmpty(ru.Updated, "?"), len(added))

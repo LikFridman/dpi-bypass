@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -198,6 +199,32 @@ func buildArgs(cfg *Config, svcs []Service, withUDPExtras bool) ([]string, error
 	if !ok {
 		best = strategies[0]
 	}
+	// свои стратегии для отдельных сайтов (подбор для автосписка, глубокая проверка)
+	bySt := map[string][]string{}
+	for d, id := range cfg.Sites {
+		if _, ok := strategyByID(id); ok {
+			bySt[id] = append(bySt[id], d)
+		}
+	}
+	ids := make([]string, 0, len(bySt))
+	for id := range bySt {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		st, _ := strategyByID(id)
+		doms := bySt[id]
+		sort.Strings(doms)
+		lf := filepath.Join(listDir, "site-"+id+".txt")
+		if err := os.WriteFile(lf, []byte(strings.Join(doms, "\n")+"\n"), 0644); err != nil {
+			return nil, err
+		}
+		args = append(args, "--filter-tcp=443", "--hostlist="+lf)
+		args = append(args, ex...)
+		args = append(args, st.Args...)
+		args = append(args, "--new")
+	}
+
 	// свой Cloudflare Worker для Telegram тоже пропускаем через обход
 	if tgWorkerHost != "" {
 		args = append(args, "--filter-tcp=443", "--hostlist-domains="+tgWorkerHost)
