@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-const version = "1.2"
+var version = "1.3" // при сборке на GitHub подставляется номер релиза
 
 var (
 	baseDir string
@@ -84,8 +84,13 @@ func main() {
 		return
 	}
 
-	banner()
 	os.MkdirAll(dataDir, 0755)
+	initLog(filepath.Join(dataDir, "log.txt"))
+	banner()
+	if isARM64() {
+		warn("Это Windows на ARM-процессоре. Драйвер WinDivert для ARM64 официально не подписан,")
+		say("      поэтому обход DPI здесь, скорее всего, не запустится. Прокси для Telegram работать будет.")
+	}
 	initJob()
 	go handleSignals()
 
@@ -150,8 +155,9 @@ func menu() {
 		say("  %s  Выключить обход и завершить всё", col(cBold+cCyan, "3"))
 		say("  %s  Диагностика (сайты, VPN, сеть)", col(cBold+cCyan, "4"))
 		say("  %s  Подобрать стратегии заново", col(cBold+cCyan, "5"))
+		say("  %s  Защитник Windows: исключения и карантин", col(cBold+cCyan, "6"))
 		say("  %s  Выход", col(cBold+cCyan, "0"))
-		fmt.Print("\n  Выбери [1-5, 0]: ")
+		fmt.Fprint(out, "\n  Выбери [1-6, 0]: ")
 		switch strings.TrimSpace(readLine()) {
 		case "1":
 			startBypass(modeNoVPN, false)
@@ -168,10 +174,12 @@ func menu() {
 		case "5":
 			startBypass(modeWithVPN, true)
 			return
+		case "6":
+			defenderHelp()
 		case "0", "q":
 			return
 		default:
-			warn("Нужно ввести цифру 1, 2, 3, 4, 5 или 0")
+			warn("Нужно ввести цифру от 0 до 6")
 		}
 	}
 }
@@ -184,7 +192,7 @@ func readLine() string {
 }
 
 func askYes(q string) bool {
-	fmt.Printf("%s %s ", col(cYellow, "[?]"), q+" [Enter - да / n - нет]:")
+	fmt.Fprintf(out, "%s %s ", col(cYellow, "[?]"), q+" [Enter - да / n - нет]:")
 	a := strings.ToLower(readLine())
 	return a == "" || a == "y" || a == "д" || a == "да" || a == "yes"
 }
@@ -306,13 +314,20 @@ func handleSignals() {
 	os.Exit(0)
 }
 
+var updatesDone bool
+
 func mustPrepare() []Service {
 	if err := ensureZapret(); err != nil {
 		bad("%v", err)
 		say("\nМожно скачать вручную: github.com/bol-van/zapret-win-bundle -> папку zapret-winws")
-		say("положи рядом с dpi-bypass.exe. Если файлы удаляет антивирус - добавь папку в исключения.")
+		say("положи рядом с dpi-bypass.exe. Если файлы удаляет антивирус - пункт меню 6.")
 		pause()
 		os.Exit(1)
+	}
+	if !updatesDone {
+		loadServices() // создаёт sites.txt, если его нет
+		applyUpdates()
+		updatesDone = true
 	}
 	svcs, err := loadServices()
 	if err != nil || len(svcs) == 0 {
@@ -386,7 +401,7 @@ func selectConfig(svcs []Service) *Config {
 	title("Перебор стратегий (%d шт.)", len(strategies))
 	works := map[string]map[string]bool{} // стратегия -> сервис -> работает
 	for i, st := range strategies {
-		fmt.Printf("  %s %-42s ", col(cGray, fmt.Sprintf("[%2d/%d]", i+1, len(strategies))), st.Name)
+		fmt.Fprintf(out, "  %s %-42s ", col(cGray, fmt.Sprintf("[%2d/%d]", i+1, len(strategies))), st.Name)
 		w, err := startWinws(testArgs(st))
 		if err != nil {
 			say("%s", col(cYellow, "не запустилась"))
@@ -614,6 +629,12 @@ func runForever(cfg *Config, svcs []Service) {
 
 		if !w.Alive() {
 			warn("%s winws неожиданно завершился: %s - перезапускаю", ts(), w.out.Tail())
+			explainWinwsExit(w.out.Tail())
+			if len(missingZapretFiles()) > 0 {
+				if err := ensureZapret(); err != nil {
+					bad("%v", err)
+				}
+			}
 			if w, err = startCombined(cfg, svcs); err != nil {
 				bad("%v", err)
 				continue

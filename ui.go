@@ -4,11 +4,39 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"os"
+	"regexp"
 	"strings"
 	"time"
 )
 
 var colorsOn bool
+
+// out - всё, что видно в окне; копия без цветов пишется в dpi-bypass-data\log.txt
+var out io.Writer = os.Stdout
+
+type logWriter struct{ f *os.File }
+
+var ansiRe = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+func (l logWriter) Write(p []byte) (int, error) {
+	l.f.Write(ansiRe.ReplaceAll(p, nil))
+	return len(p), nil
+}
+
+// initLog открывает лог (старый переименовывается в log-old.txt)
+func initLog(path string) {
+	if st, err := os.Stat(path); err == nil && st.Size() > 0 {
+		os.Rename(path, strings.TrimSuffix(path, ".txt")+"-old.txt")
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(f, "dpi-bypass %s, запуск %s\n", version, time.Now().Format("02.01.2006 15:04:05"))
+	out = io.MultiWriter(os.Stdout, logWriter{f})
+}
 
 const (
 	cReset  = "\x1b[0m"
@@ -29,19 +57,21 @@ func col(c, s string) string {
 
 func ts() string { return col(cGray, time.Now().Format("15:04:05")) }
 
-func say(format string, a ...any) { fmt.Printf(format+"\n", a...) }
+func say(format string, a ...any) { fmt.Fprintf(out, format+"\n", a...) }
 func info(format string, a ...any) {
-	fmt.Printf("%s %s\n", col(cCyan, "[i]"), fmt.Sprintf(format, a...))
+	fmt.Fprintf(out, "%s %s\n", col(cCyan, "[i]"), fmt.Sprintf(format, a...))
 }
 func good(format string, a ...any) {
-	fmt.Printf("%s %s\n", col(cGreen, "[+]"), fmt.Sprintf(format, a...))
+	fmt.Fprintf(out, "%s %s\n", col(cGreen, "[+]"), fmt.Sprintf(format, a...))
 }
-func bad(format string, a ...any) { fmt.Printf("%s %s\n", col(cRed, "[-]"), fmt.Sprintf(format, a...)) }
+func bad(format string, a ...any) {
+	fmt.Fprintf(out, "%s %s\n", col(cRed, "[-]"), fmt.Sprintf(format, a...))
+}
 func warn(format string, a ...any) {
-	fmt.Printf("%s %s\n", col(cYellow, "[!]"), fmt.Sprintf(format, a...))
+	fmt.Fprintf(out, "%s %s\n", col(cYellow, "[!]"), fmt.Sprintf(format, a...))
 }
 func title(format string, a ...any) {
-	fmt.Printf("\n%s\n", col(cBold+cCyan, "== "+fmt.Sprintf(format, a...)+" =="))
+	fmt.Fprintf(out, "\n%s\n", col(cBold+cCyan, "== "+fmt.Sprintf(format, a...)+" =="))
 }
 
 func mark(ok bool) string {
@@ -60,7 +90,7 @@ func pad(s string, n int) string {
 }
 
 func pause() {
-	fmt.Print("\nНажми Enter, чтобы закрыть...")
+	fmt.Fprint(out, "\nНажми Enter, чтобы закрыть...")
 	readLine()
 }
 

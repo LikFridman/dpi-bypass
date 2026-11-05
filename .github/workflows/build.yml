@@ -1,0 +1,102 @@
+# Сборка dpi-bypass.exe на серверах GitHub из исходников этого репозитория.
+# - при каждом изменении кода в main: тесты, сборка, свежий dpi-bypass.exe коммитится в корень репозитория
+# - при теге vX.Y.Z: ещё и релиз с exe, контрольной суммой и подтверждением происхождения (attestation)
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths-ignore:
+      - "dpi-bypass.exe"
+      - "dpi-bypass.exe.sha256"
+      - "update/**"
+      - "**.md"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Версия
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            V="${GITHUB_REF#refs/tags/v}"
+          else
+            V="$(sed -n 's/^var version = "\([^"]*\)".*/\1/p' main.go)"
+          fi
+          echo "VERSION=$V" >> "$GITHUB_ENV"
+          IFS=. read -r MA MI PA <<< "${V%%-*}"
+          echo "VMAJ=${MA:-0}" >> "$GITHUB_ENV"
+          echo "VMIN=${MI:-0}" >> "$GITHUB_ENV"
+          echo "VPAT=${PA:-0}" >> "$GITHUB_ENV"
+
+      - name: Проверки и тесты
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: Ресурсы exe (иконка, манифест, версия)
+        shell: bash
+        run: |
+          go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0
+          "$(go env GOPATH)/bin/goversioninfo" -64 -o resource_windows_amd64.syso \
+            -ver-major="$VMAJ" -ver-minor="$VMIN" -ver-patch="$VPAT" \
+            -product-ver-major="$VMAJ" -product-ver-minor="$VMIN" -product-ver-patch="$VPAT" \
+            -file-version="$VERSION" -product-version="$VERSION" \
+            res/versioninfo.json
+
+      - name: Сборка
+        shell: bash
+        run: |
+          go build -trimpath -ldflags "-X main.version=$VERSION" -o dpi-bypass.exe .
+          sha256sum dpi-bypass.exe | tee dpi-bypass.exe.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dpi-bypass-${{ env.VERSION }}
+          path: |
+            dpi-bypass.exe
+            dpi-bypass.exe.sha256
+
+      - name: Положить exe в репозиторий
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f dpi-bypass.exe dpi-bypass.exe.sha256
+          if git diff --cached --quiet; then echo "exe не изменился"; exit 0; fi
+          git commit -m "Сборка dpi-bypass.exe $VERSION (GitHub Actions) [skip ci]"
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+      - uses: actions/attest-build-provenance@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          subject-path: dpi-bypass.exe
+
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          files: |
+            dpi-bypass.exe
+            dpi-bypass.exe.sha256
+          generate_release_notes: true

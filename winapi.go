@@ -42,14 +42,19 @@ func initConsole() {
 	}
 }
 
-// isAdmin: открыть физический диск может только администратор.
+// isAdmin - запущен ли процесс с повышенными правами (TokenElevation)
 func isAdmin() bool {
-	f, err := os.Open(`\\.\PHYSICALDRIVE0`)
-	if err != nil {
+	var t syscall.Token
+	if err := syscall.OpenProcessToken(syscall.Handle(^uintptr(0)), syscall.TOKEN_QUERY, &t); err != nil {
 		return false
 	}
-	f.Close()
-	return true
+	defer t.Close()
+	var elevated uint32
+	var n uint32
+	if err := syscall.GetTokenInformation(t, 20, (*byte)(unsafe.Pointer(&elevated)), 4, &n); err != nil { // TokenElevation
+		return false
+	}
+	return elevated != 0
 }
 
 // relaunchAsAdmin перезапускает программу с запросом UAC.

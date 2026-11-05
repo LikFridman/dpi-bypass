@@ -15,7 +15,11 @@ import (
 	"time"
 )
 
-const rawBase = "https://raw.githubusercontent.com/bol-van/zapret-win-bundle/master/zapret-winws/"
+// основной адрес и зеркало (raw.githubusercontent.com у некоторых провайдеров заблокирован)
+var zapretBases = []string{
+	"https://raw.githubusercontent.com/bol-van/zapret-win-bundle/master/zapret-winws/",
+	"https://cdn.jsdelivr.net/gh/bol-van/zapret-win-bundle@master/zapret-winws/",
+}
 
 var zapretFiles = []string{
 	"winws.exe",
@@ -55,8 +59,14 @@ func ensureZapret() error {
 	info("Источник: github.com/bol-van/zapret-win-bundle")
 	cl := &http.Client{Timeout: 90 * time.Second}
 	for _, f := range miss {
-		fmt.Printf("    %s ... ", f)
-		if err := download(cl, rawBase+f, zp(f)); err != nil {
+		fmt.Fprintf(out, "    %s ... ", f)
+		var err error
+		for _, base := range zapretBases {
+			if err = download(cl, base+f, zp(f)); err == nil {
+				break
+			}
+		}
+		if err != nil {
 			say(col(cRed, "ошибка"))
 			return fmt.Errorf("не удалось скачать %s: %v", f, err)
 		}
@@ -98,12 +108,6 @@ func download(cl *http.Client, url, dst string) error {
 func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 // ---------- стратегии ----------
-
-type Strategy struct {
-	ID   string
-	Name string
-	Args []string // параметры для TCP 443 (TLS)
-}
 
 var strategies = []Strategy{
 	{"s1", "fake + multidisorder, md5sig, подмена SNI", []string{"--dpi-desync=fake,multidisorder", "--dpi-desync-split-pos=1,midsld", "--dpi-desync-repeats=11", "--dpi-desync-fooling=md5sig", "--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com"}},
@@ -289,6 +293,7 @@ func startWinws(args []string) (*Winws, error) {
 		if msg == "" {
 			msg = "без сообщения"
 		}
+		explainWinwsExit(msg)
 		return nil, fmt.Errorf("winws сразу завершился: %s", msg)
 	case <-time.After(1500 * time.Millisecond):
 	}
@@ -366,6 +371,13 @@ func checkConflicts() {
 	for _, name := range []string{"goodbyedpi.exe", "byedpi.exe", "ciadpi.exe"} {
 		if p[name] {
 			warn("Запущен %s - он конфликтует с обходом. Закрой его, иначе результаты будут неверными.", name)
+		}
+	}
+	if svcs := conflictingServices(); len(svcs) > 0 {
+		warn("Работает служба другого обхода: %s - вместе они мешают друг другу.", strings.Join(svcs, ", "))
+		if askYes("Остановить её (до перезагрузки)?") {
+			stopServices(svcs)
+			time.Sleep(time.Second)
 		}
 	}
 	if killStrayWinws() {
