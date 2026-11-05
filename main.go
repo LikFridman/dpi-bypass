@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-var version = "1.4" // при сборке на GitHub подставляется номер версии
+var version = "1.5" // при сборке на GitHub подставляется номер версии
 
 var (
 	baseDir string
@@ -118,7 +118,7 @@ func main() {
 		cmd = args[0]
 	}
 	// без команды (двойной клик), из автозапуска и после обновления - окно
-	guiMode = cmd == "" || cmd == "autostart" || strings.HasPrefix(cmd, "resume")
+	guiMode = cmd == "" || cmd == "autostart" || cmd == "uitest" || strings.HasPrefix(cmd, "resume")
 	if !guiMode {
 		attachConsole(cmd == "console")
 	}
@@ -146,7 +146,7 @@ func main() {
 	}
 
 	// окно уже открыто - показываем его, а не запускаем вторую копию
-	if guiMode && activateExisting(cmd) {
+	if guiMode && cmd != "uitest" && activateExisting(cmd) {
 		return
 	}
 	os.MkdirAll(dataDir, 0755)

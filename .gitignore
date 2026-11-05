@@ -1,3 +1,5 @@
 dpi-bypass-data/
 out/
 *.syso
+uitest.txt
+selftest.txt

@@ -81,6 +81,13 @@ func attachConsole(forceNew bool) {
 }
 
 func messageBox(text string, yesNo bool) bool {
+	if webUIActive {
+		if yesNo {
+			return uiConfirm(text)
+		}
+		uiToast(text)
+		return true
+	}
 	t, _ := syscall.UTF16PtrFromString(text)
 	c, _ := syscall.UTF16PtrFromString("dpi-bypass")
 	flags := uintptr(0x40 | 0x40000) // MB_ICONINFORMATION | MB_TOPMOST

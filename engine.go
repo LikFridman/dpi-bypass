@@ -397,8 +397,10 @@ func runForever(cfg *Config, svcs []Service, e *engineRun) {
 		}
 	}
 	engRunning.Store(true)
+	publishCfg(cfg)
 	defer func() {
 		engRunning.Store(false)
+		clearResults()
 		w.Stop()
 		stopTelegram()
 		setStatus("Обход выключен")
@@ -408,6 +410,7 @@ func runForever(cfg *Config, svcs []Service, e *engineRun) {
 	if len(exp) > 0 {
 		info("Проверяю итоговую конфигурацию...")
 		res := probeAll(exp)
+		publishResults(res)
 		say("  %s", statusLine(exp, res))
 		setStatus(plainStatus(exp, res))
 		broken := 0
@@ -424,6 +427,7 @@ func runForever(cfg *Config, svcs []Service, e *engineRun) {
 				fail("%v", err)
 			}
 			exp = expectedServices(cfg, svcs)
+			publishCfg(cfg)
 		}
 	} else {
 		setStatus(plainStatus(exp, nil))
@@ -460,6 +464,7 @@ func runForever(cfg *Config, svcs []Service, e *engineRun) {
 		guard(func() { tuneHosts(cfg, hosts) })
 		cfg.Tuned = time.Now()
 		saveConfig(cfg)
+		publishCfg(cfg)
 		if w, err = startCombined(cfg, svcs); err != nil {
 			bad("%v", err)
 		}
@@ -529,6 +534,7 @@ func runForever(cfg *Config, svcs []Service, e *engineRun) {
 			continue
 		}
 		res := probeAll(exp)
+		publishResults(res)
 		line := statusLine(exp, res)
 		setStatus(plainStatus(exp, res))
 		need := false
@@ -550,6 +556,7 @@ func runForever(cfg *Config, svcs []Service, e *engineRun) {
 			lastReselect = time.Now()
 			fails = map[string]int{}
 			exp = expectedServices(cfg, svcs)
+			publishCfg(cfg)
 			if w, err = startCombined(cfg, svcs); err != nil {
 				fail("%v", err)
 			}

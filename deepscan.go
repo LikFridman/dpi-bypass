@@ -36,7 +36,10 @@ func deepScan(host string) (Strategy, bool) {
 	defer func() { dialTO, totalTO = oldDial, oldTotal }()
 
 	start := time.Now()
+	progTotal.Store(int64(total))
+	defer progTotal.Store(0)
 	for i, st := range combos {
+		progCur.Store(int64(i + 1))
 		if cancelled() {
 			fail("Глубокая проверка остановлена.")
 		}

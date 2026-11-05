@@ -199,6 +199,9 @@ var (
 
 const className = "dpi-bypass-main"
 
+// trayCommand - что делать с пунктом меню трея (своё для простого окна и для окна «Ночь»)
+var trayCommand = func(id int) { onCommand(id) }
+
 func u16(s string) *uint16 { p, _ := syscall.UTF16PtrFromString(s); return p }
 
 func sendMsg(h uintptr, msg uint32, w, l uintptr) uintptr {
@@ -358,7 +361,7 @@ func trayMenu() {
 	cmd, _, _ := pTrackPopupMenu.Call(m, 0x100|0x2, uintptr(pt.X), uintptr(pt.Y), 0, guiHwnd, 0) // TPM_RETURNCMD|TPM_RIGHTBUTTON
 	pDestroyMenu.Call(m)
 	if cmd != 0 {
-		onCommand(int(cmd))
+		trayCommand(int(cmd))
 	}
 }
 
@@ -689,6 +692,9 @@ func createControls() {
 func activateExisting(cmd string) bool {
 	find := func() uintptr {
 		h, _, _ := pFindWindowW.Call(uintptr(unsafe.Pointer(u16(className))), 0)
+		if h == 0 {
+			h, _, _ = pFindWindowW.Call(uintptr(unsafe.Pointer(u16("webview"))), uintptr(unsafe.Pointer(u16(webTitle))))
+		}
 		return h
 	}
 	if strings.HasPrefix(cmd, "resume") {
@@ -708,7 +714,7 @@ func activateExisting(cmd string) bool {
 	return true
 }
 
-func runGUI(cmd string) {
+func runClassicGUI(cmd string) {
 	runtime.LockOSThread()
 
 	hInst, _, _ = pGetModuleHandleW.Call(0)
