@@ -3,9 +3,11 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"sort"
@@ -14,7 +16,7 @@ import (
 	"time"
 )
 
-const version = "1.1"
+const version = "1.2"
 
 var (
 	baseDir string
@@ -88,57 +90,200 @@ func main() {
 	go handleSignals()
 
 	switch cmd {
-	case "stop":
-		if killStrayWinws() {
-			good("winws остановлен.")
-		} else {
-			info("winws не запущен.")
-		}
+	case "":
+		menu()
+	case "1", "on", "nvpn", "novpn":
+		startBypass(modeNoVPN, false)
+	case "2", "vpn":
+		startBypass(modeWithVPN, false)
+	case "3", "off", "stop":
+		shutdownAll()
 		pause()
+	case "4", "check":
+		diagnostics()
+		pause()
+	case "auto":
+		startBypass(modeWithVPN, true)
+	case "telegram", "tg":
+		openTGLink = true
+		startBypass(modeWithVPN, false)
 	case "reset":
 		os.Remove(cfgPath())
 		os.Remove(filepath.Join(dataDir, "lists", "auto-hostlist.txt"))
 		good("Настройки удалены. При следующем запуске стратегии подберутся заново.")
 		pause()
-	case "check":
-		svcs := mustPrepare()
-		checkConflicts()
-		vpnStep()
-		diagnose(svcs)
-		pause()
-	case "telegram", "tg":
-		// только прокси для Telegram (без перебора), со ссылкой
-		svcs := mustPrepare()
-		checkConflicts()
-		vpnStep()
-		cfg := loadConfig()
-		if cfg == nil {
-			cfg = selectConfig(svcs)
-		}
-		openTGLink = true
-		runForever(cfg, svcs)
-	case "auto":
-		svcs := mustPrepare()
-		checkConflicts()
-		vpnStep()
-		cfg := selectConfig(svcs)
-		runForever(cfg, svcs)
-	case "":
-		svcs := mustPrepare()
-		checkConflicts()
-		vpnStep()
-		cfg := loadConfig()
-		if cfg != nil {
-			info("Найдены сохранённые настройки от %s", cfg.Created.Format("02.01.2006 15:04"))
-		} else {
-			cfg = selectConfig(svcs)
-		}
-		runForever(cfg, svcs)
 	default:
 		bad("Неизвестная команда: %s\n", cmd)
 		usage()
 		pause()
 	}
+}
+
+const (
+	modeNoVPN   = 1 // обход без VPN (VPN выключается)
+	modeWithVPN = 2 // обход вместе с VPN
+)
+
+var runMode = modeWithVPN
+
+func menu() {
+	for {
+		others := otherInstances()
+		st := detectVPN()
+		say("")
+		switch {
+		case len(others) > 0:
+			say("  Обход сейчас: %s", col(cGreen, "включён (в другом окне)"))
+		case runningProcesses()["winws.exe"]:
+			say("  Обход сейчас: %s", col(cYellow, "работает winws без программы"))
+		default:
+			say("  Обход сейчас: %s", col(cGray, "выключен"))
+		}
+		if st.Active() {
+			say("  VPN:          %s", col(cYellow, firstNonEmpty(strings.Join(st.Procs, ", "), strings.Join(st.TunNames, ", "))+" ("+st.Mode()+")"))
+		} else {
+			say("  VPN:          не найден")
+		}
+		say("")
+		say("  %s  Включить обход (VPN будет выключен)", col(cBold+cCyan, "1"))
+		say("  %s  Включить обход вместе с VPN", col(cBold+cCyan, "2"))
+		say("  %s  Выключить обход и завершить всё", col(cBold+cCyan, "3"))
+		say("  %s  Диагностика (сайты, VPN, сеть)", col(cBold+cCyan, "4"))
+		say("  %s  Подобрать стратегии заново", col(cBold+cCyan, "5"))
+		say("  %s  Выход", col(cBold+cCyan, "0"))
+		fmt.Print("\n  Выбери [1-5, 0]: ")
+		switch strings.TrimSpace(readLine()) {
+		case "1":
+			startBypass(modeNoVPN, false)
+			return
+		case "2":
+			startBypass(modeWithVPN, false)
+			return
+		case "3":
+			shutdownAll()
+			pause()
+			return
+		case "4":
+			diagnostics()
+		case "5":
+			startBypass(modeWithVPN, true)
+			return
+		case "0", "q":
+			return
+		default:
+			warn("Нужно ввести цифру 1, 2, 3, 4, 5 или 0")
+		}
+	}
+}
+
+var stdin = bufio.NewReader(os.Stdin)
+
+func readLine() string {
+	l, _ := stdin.ReadString('\n')
+	return strings.TrimSpace(l)
+}
+
+func askYes(q string) bool {
+	fmt.Printf("%s %s ", col(cYellow, "[?]"), q+" [Enter - да / n - нет]:")
+	a := strings.ToLower(readLine())
+	return a == "" || a == "y" || a == "д" || a == "да" || a == "yes"
+}
+
+// otherInstances - другие запущенные копии этой программы
+func otherInstances() []uint32 {
+	exe, _ := os.Executable()
+	me := strings.ToLower(filepath.Base(exe))
+	var res []uint32
+	for _, p := range listProcesses() {
+		if strings.ToLower(p.Exe) == me && p.PID != uint32(os.Getpid()) {
+			res = append(res, p.PID)
+		}
+	}
+	return res
+}
+
+func killPIDs(pids []uint32) int {
+	n := 0
+	for _, pid := range pids {
+		h, err := syscall.OpenProcess(0x0001, false, pid)
+		if err != nil {
+			continue
+		}
+		if syscall.TerminateProcess(h, 0) == nil {
+			n++
+		}
+		syscall.CloseHandle(h)
+	}
+	return n
+}
+
+// stopOthers останавливает обход, запущенный в других окнах
+func stopOthers() {
+	if n := killPIDs(otherInstances()); n > 0 {
+		info("Остановил обход, запущенный в другом окне")
+		time.Sleep(time.Second)
+	}
+	killStrayWinws()
+}
+
+func shutdownAll() {
+	title("Выключение")
+	stopOthers()
+	stopActive()
+	for _, args := range [][]string{{"stop", "windivert"}, {"delete", "windivert"}} {
+		c := exec.Command("sc", args...)
+		c.SysProcAttr = hiddenProcAttr()
+		c.Run()
+	}
+	good("Обход выключен, драйвер WinDivert выгружен. Интернет работает как обычно.")
+	if fileExists(tgSecretFile()) {
+		say("%s", col(cGray, "      Если в Telegram включён прокси 127.0.0.1 - выключи его: Настройки -> Продвинутые ->"))
+		say("%s", col(cGray, "      Тип соединения -> Без прокси (иначе Telegram не подключится)."))
+	}
+}
+
+func diagnostics() {
+	svcs := mustPrepare()
+	printVPNDetails()
+	vpnStep()
+	diagnose(svcs)
+}
+
+func startBypass(mode int, reselect bool) {
+	runMode = mode
+	stopOthers()
+	svcs := mustPrepare()
+	checkConflicts()
+	if mode == modeNoVPN {
+		title("Режим: обход без VPN")
+		if v := detectVPN(); v.Active() {
+			warn("Найден VPN: %s (%s)", firstNonEmpty(strings.Join(v.Procs, ", "), strings.Join(v.TunNames, ", ")), v.Mode())
+			if askYes("Закрыть его?") {
+				stopVPN(v)
+				time.Sleep(2 * time.Second)
+				if v2 := detectVPN(); len(v2.TunNames) > 0 {
+					warn("VPN-туннель всё ещё активен (%s) - выключи его в самом VPN-клиенте.", strings.Join(v2.TunNames, ", "))
+					say("%s", col(cGray, "      Пока он включён, обход будет работать в безопасном режиме и не тронет VPN."))
+				}
+			}
+		}
+	} else {
+		title("Режим: обход вместе с VPN")
+	}
+	vpnStep()
+	if mode == modeWithVPN && !curVPN.Active() {
+		info("Сейчас VPN не включён. Когда включишь - программа сама подстроится (проверка раз в минуту).")
+	}
+	var cfg *Config
+	if !reselect {
+		cfg = loadConfig()
+	}
+	if cfg != nil {
+		info("Найдены сохранённые настройки от %s", cfg.Created.Format("02.01.2006 15:04"))
+	} else {
+		cfg = selectConfig(svcs)
+	}
+	runForever(cfg, svcs)
 }
 
 var openTGLink bool

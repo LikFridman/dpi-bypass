@@ -268,6 +268,10 @@ var (
 )
 
 func startWinws(args []string) (*Winws, error) {
+	if len(curVPN.TunNames) > 0 && curVPN.PhysIdx == 0 {
+		// без привязки к настоящему адаптеру winws полез бы внутрь VPN-туннеля и сломал его
+		return nil, fmt.Errorf("включён VPN-туннель, а физический адаптер не найден - обход не запускаю, чтобы не сломать VPN")
+	}
 	w := &Winws{out: &ringBuf{}, done: make(chan struct{})}
 	w.cmd = exec.Command(zp("winws.exe"), args...)
 	w.cmd.Dir = zapDir

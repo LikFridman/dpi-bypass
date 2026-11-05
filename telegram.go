@@ -91,6 +91,9 @@ func tgRoutes(px *TGProxy) []TGRoute {
 		r = append(r, px.WorkerRoute(tgWorkerHost))
 	}
 	r = append(r, base[1])
+	if runMode == modeNoVPN {
+		return r
+	}
 	for _, s := range vpnSocks() {
 		r = append(r, SocksRoute("через VPN (SOCKS5)", s))
 	}
