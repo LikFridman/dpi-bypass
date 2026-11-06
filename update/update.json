@@ -24,7 +24,7 @@
     }
   ],
   "services": [
-    "Roblox    | www.roblox.com | roblox.com rbxcdn.com rbx.com"
+    "Roblox    | www.roblox.com | roblox.com rbxcdn.com rbx.com robloxlabs.com robloxcdn.com rbxinfra.com rbxtrk.com"
   ],
   "presets": {},
   "_presets_help": "Пресеты провайдеров: \"AS12389\": [\"s1\", \"u1\"] - какие стратегии пробовать первыми. Заполняется по результатам из задач (issues) с меткой «результат»."

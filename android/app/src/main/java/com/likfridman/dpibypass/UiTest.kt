@@ -37,7 +37,17 @@ object UiTest {
         }
         alive("переключение вкладок")
 
+        // выбор сервисов (Sites → Choose → Save)
+        click(".tab[data-p=sites]", "вкладка Sites"); Thread.sleep(600)
+        click("#chooseBtn", "Choose"); Thread.sleep(800)
+        val n = js("document.querySelectorAll('#chList input').length")?.toIntOrNull() ?: 0
+        check("окно выбора сервисов", n > 0, "сервисов $n")
+        js("document.querySelectorAll('#chList input').forEach(c=>c.checked=true)")
+        click("#chSave", "Save"); Thread.sleep(2000)
+        alive("выбор сервисов")
+
         // Ping all
+        click(".tab[data-p=home]", "вкладка Bypass"); Thread.sleep(600)
         click("#pingBtn", "Ping all"); Thread.sleep(1500); waitIdle(120)
         alive("Ping all")
 
@@ -54,6 +64,10 @@ object UiTest {
         check("нажатие: Use у стратегии", used == "\"ok\"", used ?: "")
         Thread.sleep(8000)
         alive("Use стратегии")
+        val none = js("(function(){const b=document.querySelector('#shList .st button');if(!b)return 'none';b.click();return 'ok'})()")
+        check("нажатие: None (без обхода)", none == "\"ok\"", none ?: "")
+        Thread.sleep(8000)
+        alive("None")
         click("#shAuto", "Auto (снять закрепление)"); Thread.sleep(8000)
         alive("Auto")
         click("#shClose", "закрыть окно стратегий"); Thread.sleep(500)

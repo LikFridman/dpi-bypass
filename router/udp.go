@@ -128,7 +128,7 @@ func (r *Router) handleUDP(c net.Conn) {
 				r.St.QUICDropped.Add(1)
 				continue // QUIC: приложение перейдёт на TCP, где работает обход
 			}
-			if r.udpViaUpstream(port) {
+			if r.udpViaUpstream(port, host) {
 				mu.Lock()
 				if up == nil {
 					u, err := dialUpstreamUDP(r.cfg.UDPUpstream, reply)

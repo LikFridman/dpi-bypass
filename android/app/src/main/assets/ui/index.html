@@ -79,6 +79,8 @@ h2{margin:0;font-size:15px;font-weight:700}
 .log .d{color:var(--dim)}
 .sheet{position:fixed;inset:0;z-index:30;background:rgba(5,7,20,.6);display:none;align-items:flex-end}
 .sheet.on{display:flex}
+#chList label{display:flex;align-items:center;gap:12px;padding:12px 6px;border-bottom:1px solid var(--line);font-size:15px}
+#chList input{width:20px;height:20px;accent-color:#6f8cff}
 .sheet .box{width:100%;max-height:86vh;display:flex;flex-direction:column;border-radius:24px 24px 0 0;background:rgba(18,21,48,.98);border:1px solid var(--line);padding:16px 14px calc(var(--bot) + 14px);gap:10px}
 .sheet .lst{overflow-y:auto;flex:1;min-height:0}
 .st{display:flex;align-items:center;gap:8px;padding:10px 4px;border-bottom:1px solid var(--sep)}
@@ -162,8 +164,8 @@ input[type=range]{accent-color:var(--accent);width:100%}
     </section>
 
     <section class="page" id="p-sites">
-      <div class="head"><h1>Sites</h1><button class="btn pri" data-a="pingAll" style="min-height:36px">Ping all</button></div>
-      <div class="note">Нажми на сервис, чтобы выбрать стратегию вручную, проверить любую или закрепить.</div>
+      <div class="head"><h1>Sites</h1><span class="row" style="gap:8px"><button class="btn" id="chooseBtn" style="min-height:36px">Choose</button><button class="btn pri" data-a="pingAll" style="min-height:36px">Ping all</button></span></div>
+      <div class="note">Нажми на сервис, чтобы выбрать стратегию вручную, проверить любую, закрепить или выбрать None (без обхода). Choose - какие сервисы нужны: подбор и Ping all только по ним.</div>
       <div class="card glass"><div id="allSites"></div></div>
       <div class="card glass pad"><div class="dim" style="font-size:12px">STRATEGY</div><div id="stratName" style="margin-top:4px;font-weight:600">—</div><div class="dim" id="ytSpeed" style="font-size:12px;margin-top:4px"></div><div class="dim" id="netLine" style="font-size:12px;margin-top:2px"></div></div>
       <div class="row"><button class="btn" data-a="reselect">Re-tune</button><button class="btn" data-a="stop">Stop</button><button class="btn" data-a="diag">No bypass check</button></div>
@@ -246,6 +248,12 @@ input[type=range]{accent-color:var(--accent);width:100%}
   <div class="row"><button class="btn" id="shAuto">Auto</button></div>
   <div class="lst" id="shList"></div>
 </div></div>
+<div class="sheet" id="choose"><div class="box">
+  <div class="head" style="min-height:0"><h2>Какие сервисы нужны?</h2></div>
+  <div class="dim" style="font-size:12.5px">Подбор и проверки - только по отмеченным, поэтому быстрее. Остальные идут напрямую, без обхода. Изменить можно в любой момент: Sites → Choose.</div>
+  <div class="lst" id="chList"></div>
+  <div class="row"><button class="btn" id="chCancel">Cancel</button><button class="btn pri" id="chSave" style="flex:1">Save</button></div>
+</div></div>
 <div class="agr" id="agr" role="dialog" aria-modal="true">
   <div class="txt glass" id="agrText"></div>
   <div class="row"><button class="btn" id="agrNo">Закрыть</button><button class="btn pri" id="agrYes">Принять</button></div>
@@ -275,7 +283,17 @@ $$("[data-a]").forEach(b=>b.addEventListener("click",()=>{
   if(a==="tgTest")toast("Checking Telegram…");
   call(a);
 }));
-$("#mainTog").addEventListener("click",()=>call((S.running||S.starting)?"off":"on"));
+$("#mainTog").addEventListener("click",()=>{if(S.running||S.starting){call("off");return}if(!S.chosenSet){openChoose(true);return}call("on")});
+let chStart=false;
+function openChoose(start){chStart=start;const def=["YouTube","Discord","Telegram"];
+  $("#chList").replaceChildren(...(S.sites||[]).map(x=>{const l=document.createElement("label");const c=document.createElement("input");c.type="checkbox";c.value=x.name;
+    c.checked=S.chosenSet?!!x.chosen:def.includes(x.name);const t=document.createElement("span");t.textContent=x.name;l.append(c,t);return l}));
+  $("#choose").classList.add("on")}
+$("#chooseBtn").addEventListener("click",()=>openChoose(false));
+$("#chCancel").addEventListener("click",()=>$("#choose").classList.remove("on"));
+$("#chSave").addEventListener("click",()=>{const v=[...$$("#chList input")].filter(c=>c.checked).map(c=>c.value);
+  if(!v.length){toast("Отметь хотя бы один сервис");return}
+  $("#choose").classList.remove("on");call("chooseSites",JSON.stringify(v));if(chStart)setTimeout(()=>call("on"),300)});
 $("#togDoh").addEventListener("click",()=>{S.doh=!S.doh;$("#togDoh").classList.toggle("on",S.doh);call("doh",S.doh?1:0)});
 $("#togQuic").addEventListener("click",()=>{S.blockQuic=!S.blockQuic;$("#togQuic").classList.toggle("on",S.blockQuic);call("blockQuic",S.blockQuic?1:0)});
 $("#togUdp").addEventListener("click",()=>{S.discordUdp=!S.discordUdp;$("#togUdp").classList.toggle("on",S.discordUdp);call("discordUdp",S.discordUdp?1:0)});
@@ -344,9 +362,12 @@ $("#sheet").addEventListener("click",e=>{if(e.target.id==="sheet"){$("#sheet").c
 $("#shAuto").onclick=()=>call("pin",shSite+"|");
 function stLine(x){if(!x.tested)return["—","idle"];if(x.ok)return[(x.kbps>=1024?(x.kbps/1024).toFixed(1)+" MB/s":x.kbps+" KB/s")+(x.full?"":" ~"),"ok"];return["✗ "+(x.stage||""),"bad"]}
 function loadSheet(){call("siteStrategies",shSite).then(d=>{if(!d)return;
-  $("#shInfo").textContent=(d.pinned?"Закреплена вручную: "+d.pinned:"Автоматический выбор")+(d.current?" · сейчас: "+d.current:"")+" · ~ быстрая проверка, без ~ полная";
+  $("#shInfo").textContent=(d.pinned==="none"?"Без обхода (None)":d.pinned?"Закреплена вручную: "+d.pinned:"Автоматический выбор")+(d.current?" · сейчас: "+d.current:"")+" · ~ быстрая проверка, без ~ полная";
   const L=d.list.slice().sort((a,b)=>(b.ok-a.ok)||(b.kbps-a.kbps)||(b.tested-a.tested));
-  $("#shList").replaceChildren(...L.map(x=>{const r=document.createElement("div");r.className="st"+(x.id===d.current?" cur":"");
+  const nr=document.createElement("div");nr.className="st"+(d.pinned==="none"?" cur":"");
+  const nn=document.createElement("div");nn.className="nm";const nb=document.createElement("b");nb.textContent="None · без обхода";const ns=document.createElement("small");ns.textContent="сервис идёт напрямую, как без программы; в подборе не участвует";nn.append(nb,ns);nr.appendChild(nn);
+  const nu=document.createElement("button");nu.className="btn"+(d.pinned==="none"?" pri":"");nu.textContent="Use";nu.onclick=()=>call("pin",shSite+"|none");nr.appendChild(nu);
+  $("#shList").replaceChildren(nr,...L.map(x=>{const r=document.createElement("div");r.className="st"+(x.id===d.current?" cur":"");
     const n=document.createElement("div");n.className="nm";const b=document.createElement("b");b.textContent=x.id+" · "+x.name;const sm=document.createElement("small");sm.textContent=x.args+(x.reason&&!x.ok?" — "+x.reason:"");n.append(b,sm);r.appendChild(n);
     const [t,k]=stLine(x);const bd=document.createElement("span");bd.className="bd "+k;bd.textContent=t;r.appendChild(bd);
     const tb=document.createElement("button");tb.className="btn";tb.textContent="Test";tb.onclick=()=>{tb.textContent="…";call("testStrategy",shSite+"|"+x.id)};r.appendChild(tb);

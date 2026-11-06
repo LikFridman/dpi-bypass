@@ -38,6 +38,8 @@ type uiSiteRow struct {
 	Label    string `json:"label"`
 	Strategy string `json:"strategy"`
 	Detail   string `json:"detail,omitempty"`
+	Chosen   bool   `json:"chosen"`
+	None     bool   `json:"none,omitempty"`
 }
 
 type uiProgress struct {
@@ -70,6 +72,7 @@ type uiState struct {
 	Agreement   string      `json:"agreement,omitempty"`
 	Autostart   bool        `json:"autostart"`
 	Tray        bool        `json:"tray"`
+	SitesSet    bool        `json:"chosenSet"`
 	DoH         bool        `json:"doh"`
 	Update      string      `json:"update"`
 	Dir         string      `json:"dir"`
@@ -269,6 +272,17 @@ func siteRows() ([]uiSiteRow, int, int, string) {
 		if cfg != nil {
 			unfix = cfg.Unfixable[s.Name]
 		}
+		row.Chosen = !settings.SitesSet || serviceChosen(s.Name)
+		row.None = cfg != nil && cfg.Pins[s.Name] == NoneID
+		if !row.Chosen || row.None {
+			row.Kind, row.Label, row.Strategy = "idle", "off", "None"
+			row.Detail = "не выбран - без обхода"
+			if row.None {
+				row.Detail = "без обхода (None)"
+			}
+			rows = append(rows, row)
+			continue
+		}
 		if pr, has := pres[s.Name]; usePing && has {
 			total++
 			if pr.OK {
@@ -369,7 +383,7 @@ func loadConfigCached() *Config {
 func buildUIState() uiState {
 	st := uiState{
 		Version: version, Running: engRunning.Load(), Busy: busy.Load(),
-		Mode: settings.LastMode, Autostart: autostartCache.Load(), Tray: settings.Tray, DoH: !settings.NoDoH,
+		Mode: settings.LastMode, Autostart: autostartCache.Load(), Tray: settings.Tray, DoH: !settings.NoDoH, SitesSet: settings.SitesSet || uitestMode,
 		Dir: baseDir, Missing: missingZapretFiles(), TgLink: tgCurrentLink, TgStats: tgStatusLine(),
 		TgProxies:   tgUpstreamNames(),
 		NeedConsent: !consentOK(),
@@ -694,6 +708,27 @@ func webCall(cmd, arg string) (any, error) {
 	case "tray":
 		settings.Tray = arg == "1"
 		saveSettings()
+	case "chooseSites":
+		var v []string
+		if err := json.Unmarshal([]byte(arg), &v); err != nil || len(v) == 0 {
+			return nil, fmt.Errorf("пустой список")
+		}
+		settings.Sites, settings.SitesSet = v, true
+		saveSettings()
+		info("Сервисы для обхода: %s", strings.Join(v, ", "))
+		if cfg := loadConfig(); cfg != nil {
+			applyPins(cfg)
+			saveConfig(cfg)
+			cfgCacheAt = time.Time{}
+		}
+		uiToast(fmt.Sprintf("Сохранено: %d сервисов", len(v)))
+		if engRunning.Load() {
+			mode := runMode
+			go func() {
+				stopEngine()
+				webStartEngine(mode, false)
+			}()
+		}
 	case "doh":
 		settings.NoDoH = arg != "1"
 		saveSettings()

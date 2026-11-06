@@ -113,7 +113,7 @@ func pingAllAsync() {
 	go func() {
 		defer pinging.Store(false)
 		var sites []check.Site
-		for _, s := range cachedServices() {
+		for _, s := range activeServices(cachedServices()) {
 			sites = append(sites, checkSite(s))
 		}
 		how := "без обхода"
@@ -239,8 +239,74 @@ func testOneStrategy(svc, id string) {
 	})
 }
 
-// applyPins переносит закреплённые сервисы в группы с выбранными стратегиями
+// NoneID - выбор «без обхода» для сервиса
+const NoneID = "none"
+
+// serviceActive: сервис отмечен пользователем (Sites → Choose) и для него не выбран None
+func serviceActive(name string) bool { return serviceActiveIn(loadConfigCached(), name) }
+
+func serviceActiveIn(cfg *Config, name string) bool {
+	if cfg != nil && cfg.Pins[name] == NoneID {
+		return false
+	}
+	if !settings.SitesSet {
+		return true
+	}
+	for _, n := range settings.Sites {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+
+// serviceChosen: отмечен ли сервис в Sites → Choose
+func serviceChosen(name string) bool {
+	for _, n := range settings.Sites {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+
+func activeServices(all []Service) []Service {
+	var out []Service
+	for _, s := range all {
+		if serviceActive(s.Name) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// dropService убирает сервис из групп стратегий: его трафик идёт без обхода
+func dropService(cfg *Config, svc string) {
+	var groups []Group
+	for _, g := range cfg.Groups {
+		var keep []string
+		for _, n := range g.Services {
+			if n != svc {
+				keep = append(keep, n)
+			}
+		}
+		g.Services = keep
+		if len(keep) > 0 {
+			groups = append(groups, g)
+		}
+	}
+	cfg.Groups = groups
+	delete(cfg.Unfixable, svc)
+}
+
+// applyPins переносит закреплённые сервисы в группы с выбранными стратегиями;
+// сервисы с None и не выбранные пользователем - убираются из групп (без обхода)
 func applyPins(cfg *Config) {
+	for _, s := range cachedServices() {
+		if !serviceActiveIn(cfg, s.Name) {
+			dropService(cfg, s.Name)
+		}
+	}
 	for svc, id := range cfg.Pins {
 		if _, ok := strategyByID(id); !ok {
 			continue
@@ -288,8 +354,12 @@ func pinStrategy(svc, id string) {
 	} else {
 		cfg.Pins[svc] = id
 		applyPins(cfg)
-		st, _ := strategyByID(id)
-		info("%s: закреплена стратегия %s", svc, st.Name)
+		if id == NoneID {
+			info("%s: без обхода (None) - напрямую, как без программы", svc)
+		} else {
+			st, _ := strategyByID(id)
+			info("%s: закреплена стратегия %s", svc, st.Name)
+		}
 	}
 	saveConfig(cfg)
 	uiEvent(map[string]any{"t": "stratUpdated", "site": svc})

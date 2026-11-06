@@ -454,5 +454,18 @@ func mustPrepare() []Service {
 	if err != nil || len(svcs) == 0 {
 		fail("Не удалось прочитать %s: %v", sitesPath(), err)
 	}
-	return svcs
+	act := activeServices(svcs)
+	if len(act) < len(svcs) {
+		var off []string
+		for _, s := range svcs {
+			if !serviceActive(s.Name) {
+				off = append(off, s.Name)
+			}
+		}
+		info("Без обхода (не выбраны или None): %s", strings.Join(off, ", "))
+	}
+	if len(act) == 0 {
+		fail("Не выбрано ни одного сервиса - отметь нужные: Sites → Choose")
+	}
+	return act
 }

@@ -57,7 +57,7 @@ object Pool {
         val def = Engine.strategyById(pl.default) ?: Engine.strategies.first()
         procs[Engine.PORT] = Proc(def.args, null)
         pl.groups.forEachIndexed { i, g ->
-            Engine.strategyById(g.strategy)?.let { procs[Engine.GROUP_PORT + i] = Proc(it.args, null) }
+            if (g.strategy != Engine.NONE) Engine.strategyById(g.strategy)?.let { procs[Engine.GROUP_PORT + i] = Proc(it.args, null) }
         }
         if (Store.discordUdp(ctx)) procs[Engine.UDP_PORT] = Proc(Engine.udpArgs, null)
         for ((port, pr) in procs) pr.p = Engine.startProxyArgs(ctx, pr.args, port)
@@ -70,7 +70,8 @@ object Pool {
         val groups = JSONArray()
         pl.groups.forEachIndexed { i, g ->
             val domains = g.sites.flatMap { n -> Engine.sites.firstOrNull { it.name == n }?.domains ?: emptyList() }
-            groups.put(JSONObject().put("upstream", "127.0.0.1:${Engine.GROUP_PORT + i}").put("domains", JSONArray(domains)))
+            val up = if (g.strategy == Engine.NONE) "direct" else "127.0.0.1:${Engine.GROUP_PORT + i}"
+            groups.put(JSONObject().put("upstream", up).put("domains", JSONArray(domains)))
         }
         val o = JSONObject()
             .put("listen", "127.0.0.1:${Engine.ROUTER_PORT}")
@@ -81,7 +82,9 @@ object Pool {
             .put("doh", Store.doh(ctx))
         if (procs.containsKey(Engine.UDP_PORT)) {
             // голос Discord: UDP 50000-65535
+            // только к серверам голоса Discord: игры (Roblox и др.) используют те же порты, и подмена пакетов их ломает
             o.put("udp_upstream", "127.0.0.1:${Engine.UDP_PORT}").put("udp_ports", JSONArray().put(JSONArray().put(50000).put(65535)))
+                .put("udp_cidrs", JSONArray(listOf("66.22.192.0/18", "138.128.136.0/21")))
         }
         return o
     }
@@ -146,7 +149,7 @@ object Pool {
     fun describe(): String {
         val pl = plan ?: return ""
         val def = Engine.strategyById(pl.default)?.name ?: pl.default
-        val g = pl.groups.joinToString("; ") { "${it.sites.joinToString(", ")} → ${Engine.strategyById(it.strategy)?.name ?: it.strategy}" }
+        val g = pl.groups.joinToString("; ") { "${it.sites.joinToString(", ")} → ${Engine.strategyName(it.strategy)}" }
         return "по умолчанию: $def" + (if (g.isNotEmpty()) "; $g" else "")
     }
 }

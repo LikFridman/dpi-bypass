@@ -309,12 +309,31 @@ class MainActivity : Activity() {
                     }.start()
                     null
                 }
+                "chooseSites" -> {
+                    val list = runCatching { JSONArray(arg) }.getOrNull()
+                    val v = (0 until (list?.length() ?: 0)).map { list!!.getString(it) }.toSet()
+                    Store.setChosenSites(this@MainActivity, v)
+                    Engine.log("Сервисы для обхода: ${v.joinToString()}")
+                    safeThread {
+                        val pl = Store.plan(this@MainActivity)
+                        if (pl != null) {
+                            // невыбранные - напрямую, выбранные - по прежнему плану (новые подберутся при Re-tune)
+                            val chosen = LinkedHashMap<String, String>()
+                            Engine.sites.forEach { s -> chosen[s.name] = pl.strategyFor(s.name) }
+                            chosen.entries.removeAll { it.value == Engine.NONE }
+                            val np = Engine.finishPlan(this@MainActivity, chosen.filterKeys { it !in Store.unfixable(this@MainActivity) }, emptyList(), Store.matrix(this@MainActivity))
+                            if (Engine.running) Pool.start(this@MainActivity, np)
+                        }
+                    }.start()
+                    toast("Сохранено: ${v.size} сервисов")
+                    null
+                }
                 "pin" -> {
                     val (site, id) = arg.split("|").let { (it.getOrNull(0) ?: "") to (it.getOrNull(1) ?: "") }
                     safeThread {
                         val pl = Engine.pin(this@MainActivity, site, id.ifEmpty { null })
                         if (Engine.running) Pool.start(this@MainActivity, pl)
-                        toast(if (id.isEmpty()) "$site: автоматический выбор" else "$site: стратегия закреплена")
+                        toast(when (id) { "" -> "$site: автоматический выбор"; Engine.NONE -> "$site: без обхода"; else -> "$site: стратегия закреплена" })
                         event(JSONObject().put("t", "stratUpdated").put("site", site))
                     }.start()
                     null

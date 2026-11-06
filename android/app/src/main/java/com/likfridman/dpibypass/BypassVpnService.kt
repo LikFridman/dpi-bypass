@@ -181,7 +181,7 @@ class BypassVpnService : VpnService() {
             // проверка тем же путём, что и трафик: через маршрутизатор (стратегии по сайтам)
             // фоновая проверка - лёгкая (начало страниц), чтобы не тратить мобильный трафик;
             // полная, с видео и файлами, - при подборе и по кнопке Ping all
-            if (!Engine.pinging) Engine.results = Engine.probeAll(Pool.tunnelPort(), Engine.sites.filter { !Store.unfixable(this).contains(it.name) }, quick = true)
+            if (!Engine.pinging) Engine.results = Engine.probeAll(Pool.tunnelPort(), Engine.activeSites(this).filter { !Store.unfixable(this).contains(it.name) }, quick = true)
             Engine.checkedAt = System.currentTimeMillis()
             val ok = Engine.results.values.count { it.ok }
             val total = Engine.results.size

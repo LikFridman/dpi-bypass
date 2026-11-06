@@ -170,3 +170,26 @@ func TestUDP(t *testing.T) {
 		t.Fatalf("QUIC не отброшен: %d", r.St.QUICDropped.Load())
 	}
 }
+
+func TestUDPGameTrafficStaysDirect(t *testing.T) {
+	r := New(Config{UDPUpstream: "127.0.0.1:1", UDPPorts: [][2]int{{50000, 65535}}, UDPCIDRs: DiscordVoiceCIDRs})
+	cases := []struct {
+		host string
+		port int
+		want bool
+	}{
+		{"66.22.200.10", 50010, true},   // голос Discord
+		{"128.116.10.20", 55000, false}, // игровой сервер Roblox
+		{"8.8.8.8", 55000, false},       // не Discord
+		{"66.22.200.10", 3478, false},   // другой порт
+	}
+	for _, c := range cases {
+		if got := r.udpViaUpstream(c.port, c.host); got != c.want {
+			t.Errorf("%s:%d -> %v, ожидалось %v", c.host, c.port, got, c.want)
+		}
+	}
+	r2 := New(Config{UDPUpstream: "127.0.0.1:1", UDPPorts: [][2]int{{50000, 65535}}})
+	if r2.udpViaUpstream(55000, "128.116.1.1") {
+		t.Error("Roblox не должен идти в обход даже без списка сетей")
+	}
+}

@@ -35,6 +35,9 @@ type Settings struct {
 	ConsentAt string `json:"consent_at,omitempty"`
 	// зашифрованный DNS выключен вручную (по умолчанию включён)
 	NoDoH bool `json:"no_doh,omitempty"`
+	// какие сервисы нужны (подбор и проверки - только по ним); SitesSet=false - ещё не выбирали (все)
+	Sites    []string `json:"sites,omitempty"`
+	SitesSet bool     `json:"sites_set,omitempty"`
 }
 
 var settings = Settings{Tray: true, LastMode: modeWithVPN, BgDim: 45}

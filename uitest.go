@@ -147,14 +147,14 @@ func demoState(st uiState) uiState {
 	st.TgProxies = []string{"MTProto 203.0.113.7:443 (FakeTLS)"}
 	st.Update = "1.5"
 	st.Sites = []uiSiteRow{
-		{"YouTube", "ok", "38 ms", "s1 · shared", "4.2 MB/s · видео rr1---sn.googlevideo.com"},
-		{"Discord", "ok", "52 ms", "s1 · shared", "1.8 MB/s · файл discord.com"},
-		{"Instagram", "ok", "61 ms", "s1 · shared", "900 KB/s · файл static.cdninstagram.com"},
-		{"X/Twitter", "bad", "none", "s1 · shared", "throttle: обрыв после 16 КБ: замедление / обрыв по объёму (ТСПУ)"},
-		{"Rutracker", "custom", "45 ms", "custom · c41872", ""},
-		{"LinkedIn", "ok", "88 ms", "s1 · shared", "1.1 MB/s · файл static.licdn.com"},
-		{"Roblox", "ok", "112 ms", "u-u2 · shared", ""},
-		{"Telegram", "vpn", "via VPN", "IP blocked", ""},
+		{"YouTube", "ok", "38 ms", "s1 · shared", "4.2 MB/s · видео rr1---sn.googlevideo.com", true, false},
+		{"Discord", "ok", "52 ms", "s1 · shared", "1.8 MB/s · файл discord.com", true, false},
+		{"Instagram", "ok", "61 ms", "s1 · shared", "900 KB/s · файл static.cdninstagram.com", true, false},
+		{"X/Twitter", "bad", "none", "s1 · shared", "throttle: обрыв после 16 КБ: замедление / обрыв по объёму (ТСПУ)", true, false},
+		{"Rutracker", "custom", "45 ms", "custom · c41872", "", true, false},
+		{"LinkedIn", "ok", "88 ms", "s1 · shared", "1.1 MB/s · файл static.licdn.com", true, false},
+		{"Roblox", "ok", "112 ms", "u-u2 · shared", "", true, false},
+		{"Telegram", "vpn", "via VPN", "IP blocked", "", true, false},
 	}
 	st.SitesOK, st.SitesTotal = 7, 7
 	st.Missing = nil

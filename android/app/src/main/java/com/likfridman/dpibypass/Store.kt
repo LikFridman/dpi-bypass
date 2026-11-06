@@ -52,6 +52,9 @@ object Store {
     fun setBlockQuic(ctx: Context, v: Boolean) = p(ctx).edit().putBoolean("blockQuic", v).apply()
 
     /** UDP голоса Discord через byedpi с фейковыми пакетами */
+    /** Какие сервисы нужны пользователю (null - ещё не выбирал) */
+    fun chosenSites(ctx: Context): Set<String>? = p(ctx).getStringSet("chosen_sites", null)
+    fun setChosenSites(ctx: Context, v: Set<String>) = p(ctx).edit().putStringSet("chosen_sites", v).apply()
     fun doh(ctx: Context) = p(ctx).getBoolean("doh", true)
     fun setDoh(ctx: Context, v: Boolean) = p(ctx).edit().putBoolean("doh", v).apply()
     fun discordUdp(ctx: Context) = p(ctx).getBoolean("discordUdp", true)

@@ -101,7 +101,7 @@ object Engine {
         Site("X/Twitter", "x.com", listOf("x.com", "twitter.com", "twimg.com", "t.co")),
         Site("Rutracker", "rutracker.org", listOf("rutracker.org", "rutracker.cc", "rutracker.net")),
         Site("LinkedIn", "www.linkedin.com", listOf("linkedin.com", "licdn.com")),
-        Site("Roblox", "www.roblox.com", listOf("roblox.com", "rbxcdn.com", "rbx.com", "robloxlabs.com")),
+        Site("Roblox", "www.roblox.com", listOf("roblox.com", "rbxcdn.com", "rbx.com", "robloxlabs.com", "robloxcdn.com", "rbxinfra.com", "rbxtrk.com")),
         Site("Telegram", "web.telegram.org", listOf("telegram.org", "t.me", "telegram.me", "telesco.pe", "tdesktop.com", "cdn-telegram.org")),
     )
 
@@ -351,6 +351,14 @@ object Engine {
         val t0 = System.currentTimeMillis()
         log("━━ Подбор стратегий ━━")
         status = "Checking without bypass…"
+        // только выбранные пользователем сервисы (и не те, где выбран None)
+        val sites = activeSites(ctx)
+        val off = offSites(ctx)
+        if (off.isNotEmpty()) log("Без обхода (не выбраны или None): ${off.joinToString()}")
+        if (sites.isEmpty()) {
+            log("Не выбрано ни одного сервиса - обход только стратегией по умолчанию", 'e')
+            return finishPlan(ctx, emptyMap(), emptyList(), Store.matrix(ctx))
+        }
         val base = probeAll(null, sites)
         Report.setBaseline(base)
         log("Без обхода:")
@@ -359,9 +367,10 @@ object Engine {
         val cands = sites.filter { base[it.name]?.kind == "dpi" }.toMutableList()
         val ipBlocked = sites.filter { base[it.name]?.kind == "ip" || base[it.name]?.kind == "dns" }.map { it.name }
         Store.setUnfixable(ctx, ipBlocked)
-        val yt = sites.first { it.name == "YouTube" }
-        base[yt.name]?.let { if (it.ok && it.kbps in 1 until YT_SLOW_KBPS) { log("YouTube замедлен (${speedText(it.kbps)}) - подбираю и для него"); cands.add(yt) } }
-        lastSpeeds = JSONObject().put("direct", base[yt.name]?.kbps ?: -1)
+        sites.firstOrNull { it.name == "YouTube" }?.let { yt ->
+            base[yt.name]?.let { if (it.ok && it.kbps in 1 until YT_SLOW_KBPS) { log("YouTube замедлен (${speedText(it.kbps)}) - подбираю и для него"); cands.add(yt) } }
+        }
+        lastSpeeds = JSONObject().put("direct", base["YouTube"]?.kbps ?: -1)
         if (ipBlocked.isNotEmpty()) log("Блок по IP, обход DPI не поможет: ${ipBlocked.joinToString()}", 'e')
 
         val m = Store.matrix(ctx)
@@ -490,8 +499,9 @@ object Engine {
      */
     fun finishPlan(ctx: Context, chosen: Map<String, String>, cands: List<String>, m: JSONObject): Plan {
         val assign = LinkedHashMap(chosen)
-        Store.pins(ctx).forEach { (site, id) -> if (strategyById(id) != null) assign[site] = id }
-        val def = assign.values.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key ?: strategies.first().id
+        Store.pins(ctx).forEach { (site, id) -> if (strategyById(id) != null || id == NONE) assign[site] = id }
+        offSites(ctx).forEach { assign[it] = NONE }
+        val def = assign.values.filter { it != NONE }.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key ?: strategies.first().id
         val pins = Store.pins(ctx)
         val groups = LinkedHashMap<String, MutableList<String>>()
         for ((site, id) in assign) {
@@ -504,12 +514,26 @@ object Engine {
             groups.getOrPut(id) { mutableListOf() }.add(site)
         }
         val ytK = m.optJSONObject(assign["YouTube"] ?: def)?.optJSONObject("YouTube")?.optInt("kbps") ?: 0
-        val pl = Plan(def, groups.map { PlanGroup(it.key, it.value) }.take(5), ytK)
+        val none = groups.remove(NONE)
+        val pl = Plan(def, groups.map { PlanGroup(it.key, it.value) }.take(5) + listOfNotNull(none?.let { PlanGroup(NONE, it) }), ytK)
         Store.setPlan(ctx, pl)
         assign.values.toSet().forEach { Store.recordWorked(ctx, it) }
-        log("План: по умолчанию ${strategyById(def)?.name}" + pl.groups.joinToString("") { "; ${it.sites.joinToString()} → ${strategyById(it.strategy)?.name}" })
+        log("План: по умолчанию ${strategyById(def)?.name}" + pl.groups.joinToString("") { "; ${it.sites.joinToString()} → ${strategyName(it.strategy)}" })
         return pl
     }
+
+    /** Стратегия «без обхода» для сервиса (выбор None) */
+    const val NONE = "none"
+
+    /** Сервисы, выбранные для обхода (Sites → галочки); null в настройках - ещё не выбирали (все) */
+    fun chosen(ctx: Context): Set<String> = Store.chosenSites(ctx) ?: sites.map { it.name }.toSet()
+    fun activeSites(ctx: Context) = sites.filter { it.name in chosen(ctx) && it.name !in noneSites(ctx) }
+    fun offSites(ctx: Context) = sites.map { it.name }.filter { it !in chosen(ctx) || it in noneSites(ctx) }
+
+    fun strategyName(id: String) = if (id == NONE) "без обхода (None)" else strategyById(id)?.name ?: id
+
+    /** Сервисы, для которых пользователь выбрал None - их не подбираем */
+    fun noneSites(ctx: Context) = Store.pins(ctx).filterValues { it == NONE }.keys
 
     // ---------- ручной выбор ----------
 
@@ -547,8 +571,13 @@ object Engine {
         val old = Store.plan(ctx)
         val chosen = LinkedHashMap<String, String>()
         old?.let { pl -> sites.forEach { s -> chosen[s.name] = pl.strategyFor(s.name) } }
+        chosen.entries.removeAll { it.value == NONE && it.key != site }
         if (id == null) chosen.remove(site)
-        log(if (id == null) "$site: снова автоматический выбор" else "$site: закреплена ${strategyById(id)?.name}")
+        log(when (id) {
+            null -> "$site: снова автоматический выбор"
+            NONE -> "$site: без обхода (None) - напрямую, как без программы"
+            else -> "$site: закреплена ${strategyById(id)?.name}"
+        })
         return finishPlan(ctx, chosen.filterKeys { it !in Store.unfixable(ctx) }, emptyList(), Store.matrix(ctx))
     }
 
@@ -560,6 +589,7 @@ object Engine {
         try {
             val port = if (running) Pool.tunnelPort() else null
             log("━━ Ping all ${if (port == null) "(без обхода)" else "(через обход)"} ━━")
+            val sites = activeSites(ctx)
             val r = probeAll(port, sites)
             sites.forEach { s -> r[s.name]?.let { log("  " + probeLine(s.name, it), if (it.ok) 'i' else 'e') } }
             if (running) { results = r; checkedAt = System.currentTimeMillis() }
@@ -589,11 +619,16 @@ object Engine {
         val rows = JSONArray()
         var ok = 0
         var total = 0
+        val chosenSet = Store.chosenSites(ctx) != null
+        val ch = chosen(ctx)
         for (s in sites) {
             val sid = plan?.strategyFor(s.name) ?: ""
-            val r = JSONObject().put("name", s.name).put("strategy", sid + (if (s.name in pins) " 📌" else ""))
+            val isNone = pins[s.name] == NONE
+            val r = JSONObject().put("name", s.name).put("strategy", if (isNone) "None" else sid + (if (s.name in pins) " 📌" else ""))
+                .put("chosen", s.name in ch).put("none", isNone)
             val p = results[s.name]
             when {
+                s.name !in ch || isNone -> r.put("kind", "idle").put("label", "off").put("detail", if (isNone) "без обхода (None)" else "не выбран - без обхода")
                 p != null && (running || pinging || checkedAt > 0) -> {
                     total++
                     if (p.ok) ok++
@@ -606,6 +641,7 @@ object Engine {
             rows.put(r)
         }
         o.put("sites", rows)
+        o.put("chosenSet", chosenSet)
         o.put("sitesOk", ok)
         o.put("sitesTotal", total)
         o.put("checked", if (checkedAt > 0) ago(checkedAt) else "")

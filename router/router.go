@@ -28,7 +28,7 @@ import (
 
 // Group - копия byedpi со своей стратегией для списка доменов.
 type Group struct {
-	Upstream string   `json:"upstream"` // 127.0.0.1:1081
+	Upstream string   `json:"upstream"` // 127.0.0.1:1081; "direct" - без обхода
 	Domains  []string `json:"domains"`
 }
 
@@ -40,6 +40,7 @@ type Config struct {
 	BlockQUIC    bool     `json:"block_quic"`    // отбрасывать UDP 443
 	UDPUpstream  string   `json:"udp_upstream"`  // byedpi для UDP голоса ("" - напрямую)
 	UDPPorts     [][2]int `json:"udp_ports"`     // диапазоны портов для UDPUpstream
+	UDPCIDRs     []string `json:"udp_cidrs"`     // и только к этим сетям (пусто - к любым, кроме игровых серверов)
 	TelegramMode string   `json:"telegram_mode"` // auto | ws | direct
 	DoH          bool     `json:"doh"`           // DNS (UDP 53) из туннеля - через зашифрованный DNS
 }
@@ -52,14 +53,15 @@ type Stats struct {
 }
 
 type Router struct {
-	cfg    Config
-	Log    func(format string, a ...any)
-	St     Stats
-	tgpx   *tg.TGProxy
-	ln     net.Listener
-	tgBad  sync.Map // "/24 сети" -> time.Time до которого шлём через WebSocket
-	tgFail sync.Map // -> *failCount
-	dns    *doh.Resolver
+	cfg     Config
+	Log     func(format string, a ...any)
+	St      Stats
+	tgpx    *tg.TGProxy
+	ln      net.Listener
+	tgBad   sync.Map // "/24 сети" -> time.Time до которого шлём через WebSocket
+	tgFail  sync.Map // -> *failCount
+	dns     *doh.Resolver
+	udpNets []*net.IPNet
 }
 
 type failCount struct {
@@ -72,7 +74,7 @@ func New(cfg Config) *Router {
 	if cfg.TelegramMode == "" {
 		cfg.TelegramMode = "auto"
 	}
-	r := &Router{cfg: cfg}
+	r := &Router{cfg: cfg, udpNets: mustCIDRs(cfg.UDPCIDRs...)}
 	if cfg.DoH {
 		// DoH напрямую; если провайдер его режет - через byedpi по умолчанию
 		var fb doh.Dial
@@ -254,7 +256,14 @@ func (r *Router) countGroup(up string) {
 // pipeVia соединяет клиента с target через SOCKS5 upstream; done(получено байт) - по завершении
 func (r *Router) pipeVia(c net.Conn, up, target string, first []byte, done func(got int64, d time.Duration)) {
 	start := time.Now()
-	u, err := tg.SocksDial(up, target)
+	var u net.Conn
+	var err error
+	if up == "direct" {
+		// сервис без обхода (пользователь выбрал None): напрямую, как без программы
+		u, err = net.DialTimeout("tcp", target, 10*time.Second)
+	} else {
+		u, err = tg.SocksDial(up, target)
+	}
 	if err != nil {
 		r.St.Errors.Add(1)
 		if done != nil {
@@ -371,8 +380,45 @@ func (p *prefixConn) Read(b []byte) (int, error) {
 
 // ---------- UDP ----------
 
-func (r *Router) udpViaUpstream(port int) bool {
+// Игровые серверы: их UDP никогда не идёт в обход. Иначе подмена пакетов (она нужна голосу Discord)
+// ломает игру: у Roblox - ошибки 277/279 и отключения (его игровой UDP тоже на портах 49152-65535).
+var noBypassUDP = mustCIDRs(
+	// Roblox (AS22697)
+	"128.116.0.0/17", "209.206.40.0/21", "23.173.192.0/24", "103.140.28.0/23", "103.142.220.0/23",
+	"141.193.3.0/24", "205.201.62.0/24", "204.9.184.0/24", "204.13.168.0/22",
+)
+
+// DiscordVoiceCIDRs - серверы голоса Discord (discord.media, AS49544)
+var DiscordVoiceCIDRs = []string{"66.22.192.0/18", "138.128.136.0/21"}
+
+func mustCIDRs(list ...string) []*net.IPNet {
+	var out []*net.IPNet
+	for _, c := range list {
+		if _, n, err := net.ParseCIDR(c); err == nil {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+func inNets(ip net.IP, nets []*net.IPNet) bool {
+	for _, n := range nets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Router) udpViaUpstream(port int, host string) bool {
 	if r.cfg.UDPUpstream == "" {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || inNets(ip, noBypassUDP) {
+		return false
+	}
+	if len(r.udpNets) > 0 && !inNets(ip, r.udpNets) {
 		return false
 	}
 	for _, rg := range r.cfg.UDPPorts {
