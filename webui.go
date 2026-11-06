@@ -453,6 +453,9 @@ func infoLoop() {
 // ---------- команды из страницы ----------
 
 func webStartEngine(mode int, reselect bool) {
+	if mode != modeNoVPN && mode != modeWithVPN {
+		mode = modeNoVPN // по умолчанию - без VPN
+	}
 	if !consentOK() {
 		consentPendingMode.Store(int32(mode))
 		uiEvent(map[string]any{"t": "consent"})

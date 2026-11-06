@@ -221,6 +221,13 @@ body.hasbg{--glass:rgba(12,14,34,.62)}
 .btn.pri{box-shadow:none}
 .pill{box-shadow:inset 1px 1px 0 rgba(255,255,255,.18)}
 .log{font-size:12.5px}
+/* выбранный режим: подсвечена вся плашка */
+.mode{opacity:.72;transition:opacity .3s,background .35s,border-color .35s,box-shadow .35s,transform .3s var(--ease)}
+.mode:hover{opacity:.9}
+.mode.on{opacity:1;background:linear-gradient(135deg,rgba(111,140,255,.55),rgba(155,92,255,.42));border-color:rgba(160,180,255,.95);
+  box-shadow:inset 1px 1px 0 rgba(255,255,255,.3),0 0 0 2px rgba(111,140,255,.55),0 12px 34px rgba(111,140,255,.38)}
+.mode.on span{color:rgba(255,255,255,.88)}
+.mode.on .chk{background:#fff}.mode.on .chk path{stroke:#4f63e8}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 @media (max-width:980px){.r .sg{display:none}.grid2{grid-template-columns:1fr}}
 </style>
@@ -260,7 +267,7 @@ body.hasbg{--glass:rgba(12,14,34,.62)}
       <div class="card glass hero st" id="hero" style="--i:1">
         <div class="badge" id="badge">
           <svg id="icOk" class="hide" width="30" height="30" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <svg id="icOff" width="30" height="30" viewBox="0 0 24 24"><path d="M12 3v8" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg>
+          <svg id="icOff" width="30" height="30" viewBox="0 0 24 24"><path d="M12 3l7 3v5.5c0 4.3-3 7.9-7 9.5-4-1.6-7-5.2-7-9.5V6l7-3z" stroke="#fff" stroke-width="2" fill="none" stroke-linejoin="round" opacity=".9"/><path d="M8.5 8.5l7 7" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity=".9"/></svg>
           <svg id="icBusy" class="hide" width="30" height="30" viewBox="0 0 24 24"><g class="spin" style="transform-origin:12px 12px"><path d="M12 3a9 9 0 1 1-9 9" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round"/></g></svg>
           <svg id="icWarn" class="hide" width="30" height="30" viewBox="0 0 24 24"><path d="M12 7v6M12 16.5v.5" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>
         </div>
@@ -396,7 +403,7 @@ body.hasbg{--glass:rgba(12,14,34,.62)}
 "use strict";
 const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
 const call=(cmd,arg)=>{try{return window.dpiCall?window.dpiCall(cmd,arg===undefined?"":String(arg)):Promise.resolve(null)}catch(e){return Promise.resolve(null)}};
-let S={}, page="home", logLines=[], selMode=2, seenSites=new Set(), modalId=0;
+let S={}, page="home", logLines=[], selMode=1, seenSites=new Set(), modalId=0;
 
 /* ---------- навигация с плавающей подсветкой ---------- */
 function movePill(){
@@ -446,6 +453,7 @@ $("#togTray").addEventListener("click",()=>{const v=!S.tray;S.tray=v;paintTog("#
 
 function paintTog(sel,on){$(sel).classList.toggle("on",!!on)}
 function paintModes(){$$(".mode").forEach(m=>{const on=+m.dataset.mode===selMode;m.classList.toggle("on",on);m.setAttribute("aria-checked",on?"true":"false")})}
+paintModes();
 
 /* ---------- уведомления и подтверждения ---------- */
 function toast(t){
@@ -491,7 +499,7 @@ function renderSites(){
 function apply(st){
   const prev=S;S=st;
   $("#ver").textContent="v"+st.version;
-  if(!prev.version){selMode=st.mode||2;paintModes()}
+  if(!prev.version){selMode=st.mode||1;paintModes()}
   const on=st.running||st.starting;
   paintTog("#mainTog",on);$("#mainTog").setAttribute("aria-label",on?"Turn off":"Turn on");
   $("#togLbl").textContent=st.starting?"Starting…":(st.running?"On":"Off");

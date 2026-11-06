@@ -267,7 +267,7 @@ const (
 	modeWithVPN = 2 // обход вместе с VPN
 )
 
-var runMode = modeWithVPN
+var runMode = modeNoVPN
 
 // menu - консольное меню (dpi-bypass.exe console)
 func menu() {
