@@ -742,19 +742,17 @@ func dwmAttr(hwnd uintptr, attr uint32, val uint32) bool {
 	return r == 0
 }
 
-// setupGlass: тёмный заголовок и (на Windows 11 22H2+) системное стекло Acrylic под страницей
+// setupGlass: тёмный заголовок в цвет фона страницы. Системное стекло Acrylic больше не
+// включается: оно делало окно мыльным, давало серую полосу заголовка и нагружало видеокарту.
 func setupGlass(hwnd uintptr) bool {
 	dwmAttr(hwnd, 19, 1) // тёмный заголовок (старые сборки Windows 10)
 	dwmAttr(hwnd, 20, 1) // DWMWA_USE_IMMERSIVE_DARK_MODE
-	if windowsBuild() < 22621 {
-		return false
+	if windowsBuild() >= 22000 {
+		dwmAttr(hwnd, 35, 0x001C0A07) // DWMWA_CAPTION_COLOR = #070a1c (COLORREF 0x00BBGGRR)
+		dwmAttr(hwnd, 34, 0x00301A12) // DWMWA_BORDER_COLOR - тёмная рамка
+		dwmAttr(hwnd, 36, 0x00FBF0EE) // DWMWA_TEXT_COLOR = #eef0fb
 	}
-	if !dwmAttr(hwnd, 38, 3) { // DWMWA_SYSTEMBACKDROP_TYPE = DWMSBT_TRANSIENTWINDOW (Acrylic)
-		return false
-	}
-	m := [4]int32{-1, -1, -1, -1}
-	pDwmExtendFrameIntoClient.Call(hwnd, uintptr(unsafe.Pointer(&m)))
-	return true
+	return false
 }
 
 func webWndProc(hwnd, msg, wp, lp uintptr) uintptr {

@@ -199,6 +199,28 @@ h2{margin:0;font-size:15px;font-weight:700}
 ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:999px;border:3px solid transparent;background-clip:padding-box}
 ::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.26);background-clip:padding-box;border:3px solid transparent}
 #nav2 .nv.on{background:rgba(111,140,255,.3);box-shadow:inset 1px 1px 0 rgba(255,255,255,.18),0 6px 24px rgba(111,140,255,.25)}
+/* Чёткий лёгкий вид, как на телефоне: без размытия (backdrop-filter, blur пятен и страниц)
+   и без бесконечных анимаций - окно не мылится и не подлагивает. */
+:root{--glass:rgba(26,30,66,.62);--glass2:rgba(34,39,82,.7);--line:rgba(255,255,255,.12);--hi:inset 1px 1px 0 rgba(255,255,255,.16)}
+body,body.native{background:var(--bg)}
+.bg{background:radial-gradient(80vw 80vw at 10% 5%,rgba(59,77,255,.42),transparent 70%),
+  radial-gradient(90vw 90vw at 100% 95%,rgba(155,59,255,.34),transparent 70%),
+  radial-gradient(60vw 60vw at 95% 0%,rgba(0,194,199,.2),transparent 70%)}
+.blob{display:none}
+body.hasbg .bg{opacity:.15}
+body.hasbg{--glass:rgba(12,14,34,.62)}
+.glass{backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:var(--hi),0 10px 30px rgba(0,0,0,.28)}
+.page{filter:none;transform:translateY(8px);transition:opacity .22s var(--ease),transform .28s var(--ease)}
+.page.on{transform:none}
+.page.on .st{animation-duration:.35s}
+.modal,.drop{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(5,7,20,.7)}
+.badge.ok{animation:none;box-shadow:0 8px 24px rgba(34,197,94,.35),inset 0 1px 0 rgba(255,255,255,.5)}
+.prog i{animation:none;background:linear-gradient(90deg,#6f8cff,#a78bfa)}
+.tog.on{box-shadow:inset 1px 1px 0 rgba(255,255,255,.35)}
+.mode.on{box-shadow:var(--hi),0 0 0 1px rgba(111,140,255,.5)}
+.btn.pri{box-shadow:none}
+.pill{box-shadow:inset 1px 1px 0 rgba(255,255,255,.18)}
+.log{font-size:12.5px}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 @media (max-width:980px){.r .sg{display:none}.grid2{grid-template-columns:1fr}}
 </style>
