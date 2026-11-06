@@ -134,8 +134,14 @@ func startBypass(mode int, reselect bool) {
 	if cfg != nil {
 		info("Найдены сохранённые настройки от %s", cfg.Created.Format("02.01.2006 15:04"))
 		if isp := currentISP(); cfg.ISP != "" && isp.ASN != "" && cfg.ISP != isp.ASN {
-			warn("Сменился провайдер (%s -> %s) - подбираю стратегии для нового.", cfg.ISP, isp.ASN)
-			cfg = selectConfig(svcs, cfg)
+			if n := configForNetwork(cfg, isp.ASN); n != nil {
+				good("Другая сеть: %s. Она уже встречалась - беру её стратегии (подобраны %s).", ispTitle(isp), n.Created.Format("02.01.2006"))
+				cfg = n
+				saveConfig(cfg)
+			} else {
+				warn("Сменился провайдер (%s -> %s) - подбираю стратегии для новой сети.", cfg.ISP, isp.ASN)
+				cfg = selectConfig(svcs, cfg)
+			}
 		}
 	} else {
 		cfg = selectConfig(svcs, nil)
@@ -625,6 +631,7 @@ func runForever(cfg *Config, svcs []Service, e *engineRun) {
 	}
 
 	fails := map[string]int{}
+	lastNet := netSignature()
 	lastReselect := time.Now()
 	last, lastTG := "", ""
 	for {
@@ -659,6 +666,28 @@ func runForever(cfg *Config, svcs []Service, e *engineRun) {
 			}
 			restart()
 			fails = map[string]int{}
+		}
+		// сменилась сеть (другой Wi-Fi, кабель, мобильный интернет) - стратегии этой сети
+		if sig := netSignature(); sig != lastNet {
+			lastNet = sig
+			refreshISP()
+			if isp := currentISP(); isp.ASN != "" && cfg.ISP != "" && isp.ASN != cfg.ISP {
+				w.Stop()
+				if n := configForNetwork(cfg, isp.ASN); n != nil {
+					good("%s Сеть сменилась: %s. Беру сохранённые для неё стратегии.", ts(), ispTitle(isp))
+					cfg = n
+					saveConfig(cfg)
+				} else {
+					warn("%s Сеть сменилась: %s. Подбираю стратегии для неё.", ts(), ispTitle(isp))
+					guard(func() { cfg = selectConfig(svcs, cfg) })
+				}
+				publishCfg(cfg)
+				if w, err = startCombined(cfg, svcs); err != nil {
+					bad("%v", err)
+				}
+				fails = map[string]int{}
+				continue
+			}
 		}
 		tgWatch()
 		if l := tgStatusLine(); l != "" && l != lastTG {

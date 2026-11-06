@@ -280,6 +280,7 @@ object Report {
                 .put("error", TgProxy.lastError).put("public_found", TgProxy.found))
             .put("log", JSONArray(lines.takeLast(400).map { it.take(400) }))
             .put("device_id", deviceId(ctx))
+            .put("network_key", Engine.netKey).put("network_plans", JSONArray(Store.netPlans(ctx)))
             .put("ping_all", if (Engine.checkedAt > 0) JSONObject().put("at", Engine.checkedAt).put("sites", sitesJson(Engine.results)) else JSONObject())
             .put("strategy_results", runCatching { Store.matrix(ctx) }.getOrElse { JSONObject() })
             .put("pins", JSONObject(Store.pins(ctx)))

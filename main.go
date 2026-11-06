@@ -64,6 +64,50 @@ func loadConfig() *Config {
 func saveConfig(c *Config) {
 	b, _ := json.MarshalIndent(c, "", "  ")
 	os.WriteFile(cfgPath(), b, 0644)
+	// копия для этой сети (провайдера): при возвращении в неё подбор не нужен
+	if c.ISP != "" {
+		os.MkdirAll(filepath.Join(dataDir, "networks"), 0755)
+		os.WriteFile(netCfgPath(c.ISP), b, 0644)
+	}
+}
+
+func netCfgPath(asn string) string {
+	return filepath.Join(dataDir, "networks", strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' {
+			return r
+		}
+		return '_'
+	}, asn)+".json")
+}
+
+// loadNetConfig - сохранённые стратегии для сети (провайдера) asn; nil - в этой сети подбора ещё не было
+func loadNetConfig(asn string) *Config {
+	if asn == "" {
+		return nil
+	}
+	b, err := os.ReadFile(netCfgPath(asn))
+	if err != nil {
+		return nil
+	}
+	var c Config
+	if json.Unmarshal(b, &c) != nil || c.ISP != asn {
+		return nil
+	}
+	registerCustom(c.Custom)
+	return &c
+}
+
+// configForNetwork: при смене сети - её сохранённые стратегии (свои сайты и закрепления - общие)
+func configForNetwork(cur *Config, asn string) *Config {
+	n := loadNetConfig(asn)
+	if n == nil {
+		return nil
+	}
+	if cur != nil {
+		n.Sites, n.Pins = cur.Sites, cur.Pins
+		applyPins(n)
+	}
+	return n
 }
 
 // registerCustom добавляет найденные глубокой проверкой стратегии в общий список

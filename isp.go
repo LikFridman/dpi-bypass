@@ -88,6 +88,25 @@ func currentISP() ISPInfo {
 	return *ispCached
 }
 
+// refreshISP - забыть провайдера (после смены сети), следующий currentISP спросит заново
+func refreshISP() {
+	ispMu.Lock()
+	ispCached = nil
+	ispMu.Unlock()
+}
+
+// netSignature - какие интернет-адаптеры и адреса сейчас (меняется при смене сети)
+func netSignature() string {
+	var parts []string
+	for _, a := range listAdapters() {
+		if a.Gateway && !isVPNAdapter(a) {
+			parts = append(parts, a.GUID+"="+strings.Join(a.IPs, ","))
+		}
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ";")
+}
+
 func ispTitle(i ISPInfo) string {
 	if i.ASN == "" {
 		return "не определён"

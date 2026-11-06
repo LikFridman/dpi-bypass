@@ -118,6 +118,37 @@ object Engine {
     @Volatile var cancel = false
     @Volatile var results: Map<String, Probe> = emptyMap()
     @Volatile var checkedAt = 0L
+    /** Ключ текущей сети: мобильный оператор (cell:25002) или провайдер Wi-Fi/кабеля (asn:AS12389) */
+    @Volatile var netKey = ""
+    @Volatile var netTitle = ""
+
+    /** Определить сеть под VPN (наш туннель не учитывается). Вызывать не из главного потока. */
+    fun networkKey(ctx: Context): Pair<String, String> = runCatching {
+        val cm = ctx.getSystemService(android.net.ConnectivityManager::class.java)
+        @Suppress("DEPRECATION")
+        val nets = cm.allNetworks.mapNotNull { n -> cm.getNetworkCapabilities(n)?.let { n to it } }
+            .filter { (_, c) -> !c.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) && c.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) }
+        val wifi = nets.firstOrNull { it.second.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) || it.second.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) }
+        val cell = nets.firstOrNull { it.second.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) }
+        when {
+            wifi != null -> {
+                // провайдер Wi-Fi: AS-номер по внешнему IP (запрос именно через эту сеть)
+                val c = wifi.first.openConnection(java.net.URL("https://ipinfo.io/json")) as java.net.HttpURLConnection
+                c.connectTimeout = 4000; c.readTimeout = 4000
+                val j = JSONObject(c.inputStream.bufferedReader().readText())
+                c.disconnect()
+                val org = j.optString("org")
+                val asn = org.substringBefore(" ")
+                if (asn.startsWith("AS")) ("asn:$asn" to "Wi-Fi · ${org.substringAfter(" ", asn)}") else ("" to "Wi-Fi")
+            }
+            cell != null -> {
+                val tm = ctx.getSystemService(android.telephony.TelephonyManager::class.java)
+                val op = tm.networkOperator ?: ""
+                if (op.isNotEmpty()) ("cell:$op" to "мобильная сеть · ${tm.networkOperatorName}") else ("" to "мобильная сеть")
+            }
+            else -> "" to ""
+        }
+    }.getOrDefault("" to "")
     /** Проверки через зашифрованный DNS - как трафик при включённом обходе (настройка Encrypted DNS) */
     @Volatile var useDoH = true
     @Volatile var progCur = 0
@@ -588,6 +619,7 @@ object Engine {
         o.put("needConsent", !Store.consentOK(ctx))
         o.put("blockQuic", Store.blockQuic(ctx))
         o.put("doh", Store.doh(ctx))
+        o.put("network", netTitle)
         o.put("dns", runCatching { JSONObject(Pool.routerStats).optJSONObject("doh") }.getOrNull() ?: JSONObject())
         o.put("discordUdp", Store.discordUdp(ctx))
         o.put("tgMode", Store.tgMode(ctx))

@@ -99,8 +99,16 @@ class BypassVpnService : VpnService() {
             cm.allNetworks.any { cm.getNetworkCapabilities(it)?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) == true }
         }.getOrDefault(false) && tun == null
         try {
-            var plan = Store.plan(this)
-            if (plan == null || reselect) plan = Engine.select(this)
+            val (key, title) = Engine.networkKey(this)
+            Engine.netKey = key; Engine.netTitle = title
+            // стратегии этой сети; если в ней ещё не подбирали - подбор (старый общий план - только
+            // до появления планов по сетям, после обновления программы)
+            var plan = if (reselect) null else Store.planFor(this, key) ?: if (!Store.hasNetPlans(this)) Store.plan(this) else null
+            if (plan != null && key.isNotEmpty() && Store.planFor(this, key) != null) Engine.log("Сеть: $title - беру сохранённые для неё стратегии")
+            if (plan == null) {
+                if (!reselect && key.isNotEmpty()) Engine.log("Сеть: $title - здесь ещё не подбирали, подбираю")
+                plan = Engine.select(this)
+            }
             if (stopping) return
             Engine.status = "Starting…"
             if (!Pool.start(this, plan)) {
@@ -200,12 +208,52 @@ class BypassVpnService : VpnService() {
                 continue
             }
             if (System.currentTimeMillis() - TgProxy.foundAt > 30 * 60_000L) TgProxy.discoverAsync(this, false)
+            var lastSig = networkSignature()
             for (i in 0 until 300) {
                 if (stopping) return
                 if (i % 5 == 0) Pool.ensureAlive(this)
+                // сменилась сеть (Wi-Fi <-> мобильный, другой Wi-Fi) - стратегии этой сети
+                if (i % 5 == 2) {
+                    val sig = networkSignature()
+                    if (sig != lastSig) {
+                        lastSig = sig
+                        Thread.sleep(3000) // дать сети подняться
+                        if (switchNetwork()) break
+                    }
+                }
                 Thread.sleep(1000)
             }
         }
+    }
+
+    /** Какие сети под VPN сейчас (меняется при переключении Wi-Fi/мобильной) */
+    private fun networkSignature(): String = runCatching {
+        val cm = getSystemService(android.net.ConnectivityManager::class.java)
+        @Suppress("DEPRECATION")
+        cm.allNetworks.mapNotNull { n ->
+            val c = cm.getNetworkCapabilities(n) ?: return@mapNotNull null
+            if (c.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)) null
+            else n.toString() + ":" + (cm.getLinkProperties(n)?.linkAddresses?.joinToString(",") ?: "")
+        }.sorted().joinToString(";")
+    }.getOrDefault("")
+
+    /** Сеть сменилась: если провайдер другой - его сохранённые стратегии или подбор. true - что-то поменяли */
+    private fun switchNetwork(): Boolean {
+        val (key, title) = Engine.networkKey(this)
+        if (key.isEmpty() || key == Engine.netKey) return false
+        Engine.netKey = key; Engine.netTitle = title
+        val saved = Store.planFor(this, key)
+        if (saved != null) {
+            Engine.log("Сеть сменилась: $title - беру сохранённые для неё стратегии")
+            Pool.start(this, saved)
+        } else {
+            Engine.log("Сеть сменилась: $title - здесь ещё не подбирали, подбираю")
+            Pool.stopAll()
+            val pl = Engine.select(this)
+            Pool.start(this, pl)
+        }
+        Report.action("смена сети: $title")
+        return true
     }
 
     private fun shutdownTunnel() {

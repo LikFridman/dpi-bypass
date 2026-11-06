@@ -23,7 +23,19 @@ object Store {
 
     /** План обхода (стратегии по сайтам) */
     fun plan(ctx: Context): Plan? = Plan.fromJson(p(ctx).getString("plan", null))
-    fun setPlan(ctx: Context, pl: Plan) = p(ctx).edit().putString("plan", pl.toJson().toString()).putString("strategy", pl.default).apply()
+    fun setPlan(ctx: Context, pl: Plan) {
+        val e = p(ctx).edit().putString("plan", pl.toJson().toString()).putString("strategy", pl.default)
+        // копия для текущей сети: при возвращении в неё подбор не нужен
+        val k = Engine.netKey
+        if (k.isNotEmpty()) e.putString("plan@$k", pl.toJson().toString()).putLong("planAt@$k", System.currentTimeMillis())
+        e.apply()
+    }
+
+    /** План, подобранный в этой сети (null - здесь подбора ещё не было) */
+    fun planFor(ctx: Context, key: String): Plan? = if (key.isEmpty()) null else Plan.fromJson(p(ctx).getString("plan@$key", null))
+    fun planAt(ctx: Context, key: String) = p(ctx).getLong("planAt@$key", 0)
+    fun hasNetPlans(ctx: Context) = p(ctx).all.keys.any { it.startsWith("plan@") }
+    fun netPlans(ctx: Context): List<String> = p(ctx).all.keys.filter { it.startsWith("plan@") }.map { it.removePrefix("plan@") }
 
     /** Отбрасывать QUIC (UDP 443), чтобы YouTube шёл по TCP через обход */
     fun blockQuic(ctx: Context) = p(ctx).getBoolean("blockQuic", true)

@@ -165,7 +165,7 @@ input[type=range]{accent-color:var(--accent);width:100%}
       <div class="head"><h1>Sites</h1><button class="btn pri" data-a="pingAll" style="min-height:36px">Ping all</button></div>
       <div class="note">Нажми на сервис, чтобы выбрать стратегию вручную, проверить любую или закрепить.</div>
       <div class="card glass"><div id="allSites"></div></div>
-      <div class="card glass pad"><div class="dim" style="font-size:12px">STRATEGY</div><div id="stratName" style="margin-top:4px;font-weight:600">—</div><div class="dim" id="ytSpeed" style="font-size:12px;margin-top:4px"></div></div>
+      <div class="card glass pad"><div class="dim" style="font-size:12px">STRATEGY</div><div id="stratName" style="margin-top:4px;font-weight:600">—</div><div class="dim" id="ytSpeed" style="font-size:12px;margin-top:4px"></div><div class="dim" id="netLine" style="font-size:12px;margin-top:2px"></div></div>
       <div class="row"><button class="btn" data-a="reselect">Re-tune</button><button class="btn" data-a="stop">Stop</button><button class="btn" data-a="diag">No bypass check</button></div>
     </section>
 
@@ -305,7 +305,7 @@ function apply(st){
   const sj=JSON.stringify(st.sites||[]);
   if(sj!==lastSites){lastSites=sj;rows($("#homeSites"),st.sites||[],false);rows($("#allSites"),st.sites||[],true)}
   $("#cnt").textContent=st.sitesTotal?st.sitesOk+"/"+st.sitesTotal+" up":"";
-  $("#stratName").textContent=st.strategy||"not selected yet";
+  $("#stratName").textContent=st.strategy||"not selected yet";$("#netLine").textContent=st.network?"Network: "+st.network:"";
   $("#togBoot").classList.toggle("on",!!st.boot);
   $("#togDoh").classList.toggle("on",!!st.doh);$("#togQuic").classList.toggle("on",!!st.blockQuic);$("#togUdp").classList.toggle("on",!!st.discordUdp);paintMode();
   $("#ytSpeed").textContent=st.ytKBps>0?("YouTube video: "+st.ytKBps+" KB/s при подборе"):"";
