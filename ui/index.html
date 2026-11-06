@@ -177,6 +177,13 @@ h2{margin:0;font-size:15px;font-weight:700}
 .modal.on{opacity:1;pointer-events:auto}
 .dlg{width:min(460px,90vw);border-radius:24px;padding:22px;transform:scale(.92) translateY(10px);transition:transform .5s var(--spring);background:rgba(30,34,62,.72)}
 .modal.on .dlg{transform:none}
+.agr{z-index:40}
+.agr .dlg{width:min(680px,92vw);max-height:86vh;display:flex;flex-direction:column;gap:14px}
+.agr .txt{overflow-y:auto;flex:1;min-height:0;padding-right:8px;font-size:13.5px;line-height:1.55;color:var(--muted);user-select:text}
+.agr .txt h3{margin:14px 0 4px;font-size:14px;color:var(--text)}.agr .txt h2{margin:0 0 4px;font-size:18px;color:var(--text)}
+.agr .txt ul{margin:4px 0;padding-left:20px}.agr .txt b{color:var(--text)}
+.agr label{display:flex;gap:10px;align-items:center;font-size:14px;cursor:pointer}
+.agr input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent)}
 .dlg p{margin:0 0 18px;white-space:pre-line;font-size:15px}
 ::-webkit-scrollbar{width:10px;height:10px}
 ::-webkit-scrollbar-track{background:transparent}
@@ -324,6 +331,8 @@ h2{margin:0;font-size:15px;font-weight:700}
       <div class="card glass pad st" style="--i:3">
         <div class="set"><div><b>Updates</b><span id="updLine">checking…</span></div><button class="btn" data-a="update">Check</button></div>
         <div class="set"><div><b>Diagnostics</b><span>что и как заблокировано, VPN, адаптеры, провайдер</span></div><button class="btn" data-a="diag">Run</button></div>
+        <div class="set"><div><b>Send report</b><span>технический отчёт разработчику — если что-то не работает</span></div><button class="btn" data-a="report">Send</button></div>
+        <div class="set"><div><b>User agreement</b><span>что собирается в отчётах и зачем</span></div><button class="btn" id="agrShow">Open</button></div>
         <div class="set"><div><b>Share results</b><span>готовый текст на GitHub: провайдер и сработавшие стратегии, без личных данных</span></div><button class="btn" data-a="share">Open</button></div>
         <div class="set"><div><b>Program folder</b><span id="dirLine"></span></div><button class="btn" data-a="openDir">Open</button></div>
         <div class="set"><div><b>Reset</b><span>стратегии подберутся заново при следующем включении</span></div><button class="btn dng" data-a="reset">Reset</button></div>
@@ -333,6 +342,11 @@ h2{margin:0;font-size:15px;font-weight:700}
 </div>
 
 <div class="toasts" id="toasts"></div>
+<div class="modal agr" id="agr" role="dialog" aria-modal="true" aria-label="Пользовательское соглашение"><div class="dlg glass">
+  <div class="txt" id="agrText"></div>
+  <label id="agrChkL"><input type="checkbox" id="agrChk"> Я прочитал(а) и принимаю соглашение, включая автоматическую отправку технических отчётов</label>
+  <div class="row" style="justify-content:flex-end"><button class="btn" id="agrNo">Отказаться</button><button class="btn pri" id="agrYes" disabled>Принять</button></div>
+</div></div>
 <div class="modal" id="modal" role="dialog" aria-modal="true"><div class="dlg glass"><p id="mText"></p><div class="row" style="justify-content:flex-end"><button class="btn" id="mNo">No</button><button class="btn pri" id="mYes">Yes</button></div></div></div>
 
 <script>
@@ -476,10 +490,36 @@ function addLogs(lines){
     if(near||sel!=="#fullLog")box.scrollTop=box.scrollHeight;
   });
 }
+/* ---------- пользовательское соглашение ---------- */
+function mdHtml(t){
+  const esc=x=>x.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  let h="",inUl=false;
+  t.split("\n").forEach(l=>{
+    l=esc(l).replace(/\*\*(.+?)\*\*/g,"<b>$1</b>");
+    if(/^- /.test(l)){if(!inUl){h+="<ul>";inUl=true}h+="<li>"+l.slice(2)+"</li>";return}
+    if(inUl){h+="</ul>";inUl=false}
+    if(/^# /.test(l))h+="<h2>"+l.slice(2)+"</h2>";else if(/^## /.test(l))h+="<h3>"+l.slice(3)+"</h3>";else if(l.trim())h+="<p style='margin:4px 0'>"+l+"</p>";
+  });
+  return h+(inUl?"</ul>":"");
+}
+let agrOpen=false,agrMust=false;
+function showAgreement(must){
+  if(agrOpen&&!must)return;agrOpen=true;agrMust=must;
+  call("agreement").then(t=>{$("#agrText").innerHTML=mdHtml(t||"");});
+  $("#agrChkL").style.display=must?"":"none";$("#agrNo").textContent=must?"Отказаться":"Закрыть";
+  $("#agrYes").style.display=must?"":"none";$("#agrChk").checked=false;$("#agrYes").disabled=true;
+  $("#agr").classList.add("on");
+}
+$("#agrChk").addEventListener("change",e=>{$("#agrYes").disabled=!e.target.checked});
+$("#agrYes").addEventListener("click",()=>{agrOpen=false;$("#agr").classList.remove("on");call("consent","1");toast("Соглашение принято")});
+$("#agrNo").addEventListener("click",()=>{agrOpen=false;$("#agr").classList.remove("on");if(agrMust)call("consent","0")});
+$("#agrShow").addEventListener("click",()=>showAgreement(false));
+
 window.__push=function(m){
   if(m.state)apply(m.state);
   if(m.logs)addLogs(m.logs);
-  (m.events||[]).forEach(e=>{if(e.t==="toast")toast(e.text);if(e.t==="confirm")confirmBox(e.id,e.text);if(e.t==="go")go(e.p)});
+  if(m.state&&m.state.needConsent&&!agrOpen)showAgreement(true);
+  (m.events||[]).forEach(e=>{if(e.t==="consent")showAgreement(true);if(e.t==="toast")toast(e.text);if(e.t==="confirm")confirmBox(e.id,e.text);if(e.t==="go")go(e.p)});
 };
 window.addEventListener("error",e=>call("jsError",(e.message||"")+" @"+(e.lineno||"")));
 window.addEventListener("resize",movePill);

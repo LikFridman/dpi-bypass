@@ -131,6 +131,10 @@ class MainActivity : Activity() {
     // ---------- включение (нужно разрешение на VPN) ----------
 
     fun startBypass(reselect: Boolean) {
+        if (!Store.consentOK(this)) {
+            event(JSONObject().put("t", "consent"))
+            return
+        }
         val prep = VpnService.prepare(this)
         if (prep != null) {
             pendingStart = reselect
@@ -268,6 +272,23 @@ class MainActivity : Activity() {
                     Store.setTgWorker(this@MainActivity, h)
                     toast(if (h.isEmpty()) "Worker убран" else "Worker сохранён: $h")
                     TgProxy.restartIfRunning(this@MainActivity)
+                    null
+                }
+                "consent" -> {
+                    if (arg == "1") {
+                        Store.setConsent(this@MainActivity, true)
+                        Engine.log("Пользовательское соглашение принято")
+                    } else {
+                        Store.setConsent(this@MainActivity, false)
+                        ui.post { BypassVpnService.stop(this@MainActivity); finishAndRemoveTask() }
+                    }
+                    null
+                }
+                // строка в кавычках JSON: страница делает JSON.parse
+                "agreement" -> JSONObject.quote(runCatching { assets.open("AGREEMENT.md").bufferedReader().readText() }.getOrDefault(""))
+                "report" -> {
+                    Report.send(this@MainActivity, "manual") { msg -> toast(msg) }
+                    toast("Собираю отчёт…")
                     null
                 }
                 "vpnSettings" -> { ui.post { startActivity(Intent("android.settings.VPN_SETTINGS")) }; null }

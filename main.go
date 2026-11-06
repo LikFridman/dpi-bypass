@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-var version = "1.6" // при сборке на GitHub подставляется номер версии
+var version = "1.7" // при сборке на GitHub подставляется номер версии
 
 var (
 	baseDir string
@@ -79,6 +79,9 @@ type abortErr struct{}
 
 func fail(format string, a ...any) {
 	bad(format, a...)
+	if msg := fmt.Sprintf(format, a...); !strings.Contains(msg, "Отменено") && !strings.Contains(msg, "остановлен") {
+		tmError("%s", msg)
+	}
 	if guiMode {
 		panic(abortErr{})
 	}
@@ -92,6 +95,7 @@ func guard(fn func()) (ok bool) {
 		if r := recover(); r != nil {
 			if _, isAbort := r.(abortErr); !isAbort {
 				bad("Внутренняя ошибка: %v", r)
+				tmError("внутренняя ошибка: %v", r)
 			}
 			ok = false
 		}

@@ -30,6 +30,9 @@ type Settings struct {
 	BgFile   string `json:"bg_file"`   // своя картинка фона (в папке dpi-bypass-data)
 	BgDim    int    `json:"bg_dim"`    // затемнение фона, %
 	BgBlur   int    `json:"bg_blur"`   // размытие фона, px
+	// версия принятого пользовательского соглашения (0 - не принято) и когда
+	Consent   int    `json:"consent"`
+	ConsentAt string `json:"consent_at,omitempty"`
 }
 
 var settings = Settings{Tray: true, LastMode: modeWithVPN, BgDim: 45}

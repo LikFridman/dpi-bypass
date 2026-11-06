@@ -191,6 +191,7 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         run: |
           export APP_VERSION="$(sed -n 's/^var version = "\([^"]*\)".*/\1/p' main.go)"
+          cp AGREEMENT.md android/app/src/main/assets/AGREEMENT.md
           gradle -p android assembleRelease --no-daemon --stacktrace
           cp android/app/build/outputs/apk/release/app-release.apk dpi-bypass.apk
           sha256sum dpi-bypass.apk | tee dpi-bypass.apk.sha256

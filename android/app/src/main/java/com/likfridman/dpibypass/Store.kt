@@ -21,6 +21,16 @@ object Store {
     fun setBgOpts(ctx: Context, dim: Int, blur: Int) =
         p(ctx).edit().putInt("bgDim", dim.coerceIn(0, 90)).putInt("bgBlur", blur.coerceIn(0, 30)).apply()
 
+    /** Принятая версия пользовательского соглашения (0 - не принято). */
+    const val AGREEMENT_VERSION = 1
+    fun consentOK(ctx: Context) = p(ctx).getInt("consent", 0) >= AGREEMENT_VERSION
+    fun setConsent(ctx: Context, ok: Boolean) =
+        p(ctx).edit().putInt("consent", if (ok) AGREEMENT_VERSION else 0).putLong("consentAt", System.currentTimeMillis()).apply()
+
+    /** Адрес для отчётов (из update.json в репозитории). */
+    fun reportUrl(ctx: Context): String = p(ctx).getString("reportUrl", "") ?: ""
+    fun setReportUrl(ctx: Context, u: String) = p(ctx).edit().putString("reportUrl", u).apply()
+
     /** Постоянный секрет локального прокси Telegram (чтобы прокси не добавлять заново). */
     fun tgSecret(ctx: Context): String {
         p(ctx).getString("tgSecret", null)?.let { if (it.length == 32) return it }

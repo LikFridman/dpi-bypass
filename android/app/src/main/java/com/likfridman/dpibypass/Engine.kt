@@ -200,6 +200,7 @@ object Engine {
         status = "Checking sites…"
         val base = probeAll(null)
         sites.forEach { s -> base[s.name]?.let { log(probeLine(s.name, it)) } }
+        Report.setBaseline(base)
         val cands = sites.filter { base[it.name]?.kind == "dpi" }
         val ipBlocked = sites.filter { base[it.name]?.kind == "ip" || base[it.name]?.kind == "dns" }.map { it.name }
         Store.setUnfixable(ctx, ipBlocked)
@@ -219,6 +220,7 @@ object Engine {
             status = "Testing strategies: ${i + 1}/${strategies.size}"
             val p = runCatching { startProxy(ctx, s, TEST_PORT) }.getOrNull()
             if (p == null || !p.isAlive) {
+                Report.recordStrategy(s, cands, null)
                 log("[${i + 1}/${strategies.size}] ${s.name}: не запустилась")
                 stopProxy(p)
                 continue
@@ -226,6 +228,7 @@ object Engine {
             val r = probeAll(TEST_PORT, cands)
             stopProxy(p)
             val n = cands.count { r[it.name]?.ok == true }
+            Report.recordStrategy(s, cands, r)
             log("[${i + 1}/${strategies.size}] ${s.name}: открыто $n из ${cands.size}")
             if (n > bestN) { best = s; bestN = n }
             if (n == cands.size) break
@@ -289,6 +292,7 @@ object Engine {
         o.put("tgError", TgProxy.lastError)
         o.put("tgProxies", JSONArray(Store.tgProxies(ctx)))
         o.put("tgWorker", Store.tgWorker(ctx))
+        o.put("needConsent", !Store.consentOK(ctx))
         return o
     }
 

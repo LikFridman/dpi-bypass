@@ -89,6 +89,12 @@ class BypassVpnService : VpnService() {
     private fun run(reselect: Boolean) {
         Engine.starting = true
         Engine.cancel = false
+        // был ли включён другой VPN до нас (для отчёта)
+        Report.otherVpnBeforeStart = runCatching {
+            val cm = getSystemService(android.net.ConnectivityManager::class.java)
+            @Suppress("DEPRECATION")
+            cm.allNetworks.any { cm.getNetworkCapabilities(it)?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) == true }
+        }.getOrDefault(false) && tun == null
         try {
             var st = Engine.strategyById(Store.strategy(this))
             if (st == null || reselect) st = Engine.select(this)
@@ -101,6 +107,8 @@ class BypassVpnService : VpnService() {
                 proxy = Engine.startProxy(this, st, Engine.PORT)
             }
             if (!startTunnel()) {
+                Report.error("VPN-туннель не создан")
+                Report.send(this, "error")
                 Engine.log("Не удалось создать VPN-туннель. Возможно, включён другой VPN с «постоянным» режимом.")
                 Engine.status = "Ошибка: VPN-туннель не создан"
                 shutdown()
@@ -112,6 +120,8 @@ class BypassVpnService : VpnService() {
             TgProxy.start(this, Engine.PORT)
             watch(st)
         } catch (e: Exception) {
+            Report.error("сбой: ${e.javaClass.simpleName}: ${e.message}")
+            Report.send(this, "error")
             Engine.log("Ошибка: ${e.message}")
             Engine.status = "Ошибка: ${e.message}"
             shutdown()
@@ -156,6 +166,7 @@ class BypassVpnService : VpnService() {
     private fun watch(start: Strategy) {
         var st = start
         var fails = 0
+        var reported = false
         while (!stopping) {
             Engine.results = Engine.probeAll(Engine.PORT, Engine.sites.filter { !Store.unfixable(this).contains(it.name) })
             Engine.checkedAt = System.currentTimeMillis()
@@ -168,8 +179,15 @@ class BypassVpnService : VpnService() {
                 (if (bad.isNotEmpty()) " · none: " + bad.joinToString(", ") else "")
             foreground()
             fails = if (total > 0 && ok * 2 < total) fails + 1 else 0
+            if (!reported) {
+                reported = true
+                // отчёт о подключении - когда Telegram успеет поработать
+                Thread { Thread.sleep(20_000); Report.send(this, "connect") }.start()
+            }
             if (fails >= 2 && !stopping) {
                 Engine.log("Сайты перестали открываться - подбираю стратегию заново")
+                Report.error("сайты перестали открываться: $ok из $total")
+                Report.send(this, "error")
                 Engine.stopProxy(proxy)
                 st = Engine.select(this)
                 proxy = Engine.startProxy(this, st, Engine.PORT)
@@ -180,6 +198,7 @@ class BypassVpnService : VpnService() {
                 if (stopping) return
                 if (proxy?.isAlive != true) {
                     Engine.log("byedpi завершился - перезапускаю")
+                    Report.error("byedpi завершился")
                     proxy = Engine.startProxy(this, st, Engine.PORT)
                 }
                 Thread.sleep(1000)

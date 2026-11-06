@@ -432,6 +432,38 @@ type TGProxy struct {
 	failed  atomic.Int64
 	seenMu  sync.Mutex
 	seenKey map[string]bool
+
+	routeMu   sync.Mutex
+	routeStat map[string]*[2]int64 // способ -> [удачно, неудачно]
+}
+
+func (p *TGProxy) countRoute(name string, ok bool) {
+	p.routeMu.Lock()
+	defer p.routeMu.Unlock()
+	if p.routeStat == nil {
+		p.routeStat = map[string]*[2]int64{}
+	}
+	st := p.routeStat[name]
+	if st == nil {
+		st = &[2]int64{}
+		p.routeStat[name] = st
+	}
+	if ok {
+		st[0]++
+	} else {
+		st[1]++
+	}
+}
+
+// RouteStats - сколько раз каждый способ сработал и не сработал
+func (p *TGProxy) RouteStats() map[string][2]int64 {
+	p.routeMu.Lock()
+	defer p.routeMu.Unlock()
+	out := map[string][2]int64{}
+	for k, v := range p.routeStat {
+		out[k] = *v
+	}
+	return out
 }
 
 func (p *TGProxy) logf(format string, a ...any) {
@@ -774,10 +806,12 @@ func (p *TGProxy) handle(c net.Conn) {
 				ws, host, err := r.WS(ci.DC, ci.Media, ci.Test)
 				if err != nil {
 					p.setBad(key, true)
+					p.countRoute(r.Name, false)
 					p.logOnce("fail"+key, "Telegram %s: %s не работает (%s)", label, r.Name, shortErrMsg(err))
 					continue
 				}
 				p.setBad(key, false)
+				p.countRoute(r.Name, true)
 				p.viaWS.Add(1)
 				p.logOnce("ok"+key, "Telegram %s -> %s %s", label, r.Name, host)
 				if err := ws.WriteMsg(relay); err != nil {
@@ -790,10 +824,12 @@ func (p *TGProxy) handle(c net.Conn) {
 			tc, via, err := r.TCP(ci.DC)
 			if err != nil {
 				p.setBad(key, true)
+				p.countRoute(r.Name, false)
 				p.logOnce("fail"+key, "Telegram %s: %s не работает (%s)", label, r.Name, shortErrMsg(err))
 				continue
 			}
 			p.setBad(key, false)
+			p.countRoute(r.Name, true)
 			p.viaTCP.Add(1)
 			p.logOnce("ok"+key, "Telegram %s -> %s %s", label, r.Name, via)
 			ri, rc := relayFor(r)

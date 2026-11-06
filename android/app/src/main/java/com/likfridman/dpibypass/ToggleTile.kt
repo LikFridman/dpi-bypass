@@ -13,7 +13,7 @@ class ToggleTile : TileService() {
     override fun onClick() {
         if (Engine.running || Engine.starting) {
             BypassVpnService.stop(this)
-        } else if (VpnService.prepare(this) == null) {
+        } else if (VpnService.prepare(this) == null && Store.consentOK(this)) {
             Engine.starting = true
             BypassVpnService.start(this)
         } else {

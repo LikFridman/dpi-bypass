@@ -44,28 +44,30 @@ type uiProgress struct {
 }
 
 type uiState struct {
-	Version    string      `json:"version"`
-	Running    bool        `json:"running"`
-	Starting   bool        `json:"starting"`
-	Busy       bool        `json:"busy"`
-	Mode       int         `json:"mode"`
-	Status     string      `json:"status"`
-	ISP        string      `json:"isp"`
-	VPN        string      `json:"vpn"`
-	Sites      []uiSiteRow `json:"sites"`
-	SitesOK    int         `json:"sitesOk"`
-	SitesTotal int         `json:"sitesTotal"`
-	Checked    string      `json:"checked"`
-	TgLink     string      `json:"tgLink"`
-	TgStats    string      `json:"tgStats"`
-	TgProxies  []string    `json:"tgProxies"`
-	Autostart  bool        `json:"autostart"`
-	Tray       bool        `json:"tray"`
-	Update     string      `json:"update"`
-	Dir        string      `json:"dir"`
-	Missing    []string    `json:"missing"`
-	Progress   uiProgress  `json:"progress"`
-	DeepActive bool        `json:"deepActive"`
+	Version     string      `json:"version"`
+	Running     bool        `json:"running"`
+	Starting    bool        `json:"starting"`
+	Busy        bool        `json:"busy"`
+	Mode        int         `json:"mode"`
+	Status      string      `json:"status"`
+	ISP         string      `json:"isp"`
+	VPN         string      `json:"vpn"`
+	Sites       []uiSiteRow `json:"sites"`
+	SitesOK     int         `json:"sitesOk"`
+	SitesTotal  int         `json:"sitesTotal"`
+	Checked     string      `json:"checked"`
+	TgLink      string      `json:"tgLink"`
+	TgStats     string      `json:"tgStats"`
+	TgProxies   []string    `json:"tgProxies"`
+	NeedConsent bool        `json:"needConsent"`
+	Agreement   string      `json:"agreement,omitempty"`
+	Autostart   bool        `json:"autostart"`
+	Tray        bool        `json:"tray"`
+	Update      string      `json:"update"`
+	Dir         string      `json:"dir"`
+	Missing     []string    `json:"missing"`
+	Progress    uiProgress  `json:"progress"`
+	DeepActive  bool        `json:"deepActive"`
 }
 
 type uiPush struct {
@@ -91,8 +93,10 @@ var (
 	progCur         atomic.Int64
 	progTotal       atomic.Int64
 	autostartCache  atomic.Bool
-	infoISP         atomic.Value // string
-	infoVPN         atomic.Value // string
+	// режим, который хотели включить до принятия соглашения
+	consentPendingMode atomic.Int32
+	infoISP            atomic.Value // string
+	infoVPN            atomic.Value // string
 
 	confirmMu   sync.Mutex
 	confirmSeq  int
@@ -335,8 +339,9 @@ func buildUIState() uiState {
 		Version: version, Running: engRunning.Load(), Busy: busy.Load(),
 		Mode: settings.LastMode, Autostart: autostartCache.Load(), Tray: settings.Tray,
 		Dir: baseDir, Missing: missingZapretFiles(), TgLink: tgCurrentLink, TgStats: tgStatusLine(),
-		TgProxies:  tgUpstreamNames(),
-		DeepActive: deepActive.Load(),
+		TgProxies:   tgUpstreamNames(),
+		NeedConsent: !consentOK(),
+		DeepActive:  deepActive.Load(),
 	}
 	st.Starting = engineGoroutine.Load() && !st.Running
 	if engRunning.Load() {
@@ -410,6 +415,14 @@ func infoLoop() {
 // ---------- команды из страницы ----------
 
 func webStartEngine(mode int, reselect bool) {
+	if !consentOK() {
+		consentPendingMode.Store(int32(mode))
+		uiEvent(map[string]any{"t": "consent"})
+		if guiHwnd != 0 && wv != nil {
+			wv.Dispatch(showMainWindow)
+		}
+		return
+	}
 	if engineGoroutine.Load() && !engRunning.Load() {
 		uiToast("Обход уже запускается - подожди немного.")
 		return
@@ -526,6 +539,26 @@ func webCall(cmd, arg string) (any, error) {
 			uiToast("Добавлен запасной прокси: " + u.String())
 			info("Telegram: добавлен запасной прокси %s", u)
 		}
+	case "consent":
+		if arg == "1" {
+			setConsent(true)
+			info("Пользовательское соглашение принято.")
+			if m := consentPendingMode.Swap(0); m != 0 {
+				webStartEngine(int(m), false)
+			}
+		} else {
+			setConsent(false)
+			go func() {
+				time.Sleep(300 * time.Millisecond)
+				shutdownAll()
+				os.Exit(0)
+			}()
+		}
+	case "agreement":
+		return agreementText, nil
+	case "report":
+		go sendReport("manual")
+		uiToast("Собираю отчёт...")
 	case "tgClearProxies":
 		os.Remove(tgProxiesFile())
 		uiToast("Запасные прокси удалены")

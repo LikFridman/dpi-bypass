@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net"
@@ -108,5 +109,10 @@ func main() {
 		time.Sleep(3 * time.Second)
 		a, t, ws, tcp, f := px.Stats()
 		fmt.Printf("STATS %d %d %d %d %d\n", a, t, ws, tcp, f)
+		if rs := px.RouteStats(); len(rs) > 0 {
+			if b, err := json.Marshal(rs); err == nil {
+				fmt.Printf("ROUTES %s\n", b)
+			}
+		}
 	}
 }

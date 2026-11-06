@@ -106,6 +106,13 @@ input[type=range]{accent-color:var(--accent);width:100%}
 .toast.out{animation:tOut .25s var(--ease) forwards}
 @keyframes tIn{from{opacity:0;transform:translateY(10px)}}
 @keyframes tOut{to{opacity:0;transform:translateY(8px)}}
+.agr{position:fixed;inset:0;z-index:40;background:rgba(7,10,28,.98);display:none;flex-direction:column;padding:calc(var(--top) + 12px) 14px calc(var(--bot) + 14px);gap:12px}
+.agr.on{display:flex}
+.agr .txt{flex:1;min-height:0;overflow-y:auto;border-radius:18px;padding:16px;font-size:14px;line-height:1.55;color:var(--muted);user-select:text}
+.agr .txt h2{margin:0 0 6px;font-size:19px;color:var(--text)}.agr .txt h3{margin:14px 0 4px;font-size:15px;color:var(--text)}
+.agr .txt ul{margin:4px 0;padding-left:20px}.agr .txt b{color:var(--text)}
+.agr label{display:flex;gap:10px;align-items:flex-start;font-size:14px}
+.agr input[type=checkbox]{width:20px;height:20px;flex:none;accent-color:var(--accent);margin-top:1px}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -187,6 +194,8 @@ input[type=range]{accent-color:var(--accent);width:100%}
         <div class="set"><div><b>Start on boot</b><span>после перезагрузки обход включится сам</span></div><button class="tog sm" id="togBoot" aria-label="Start on boot"><i></i></button></div>
         <div class="set"><div><b>Always-on VPN</b><span>в настройках Android можно сделать обход «всегда включённым»</span></div><button class="btn" data-a="vpnSettings" style="min-height:36px">Open</button></div>
         <div class="set"><div><b>Quick tile</b><span>«Обход DPI» — добавь плитку в шторку, чтобы включать одним касанием</span></div></div>
+        <div class="set"><div><b>Send report</b><span>технический отчёт разработчику — если что-то не работает</span></div><button class="btn" data-a="report" style="min-height:36px">Send</button></div>
+        <div class="set"><div><b>User agreement</b><span>что собирается в отчётах и зачем</span></div><button class="btn" id="agrShow" style="min-height:36px">Open</button></div>
         <div class="set"><div><b>GitHub</b><span id="verLine"></span></div><button class="btn" data-a="github" style="min-height:36px">Open</button></div>
       </div>
     </section>
@@ -201,6 +210,11 @@ input[type=range]{accent-color:var(--accent);width:100%}
   <button class="tab" data-p="set"><svg width="22" height="22" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Settings</button>
 </nav>
 <div class="toasts" id="toasts"></div>
+<div class="agr" id="agr" role="dialog" aria-modal="true">
+  <div class="txt glass" id="agrText"></div>
+  <label id="agrChkL"><input type="checkbox" id="agrChk"><span>Я прочитал(а) и принимаю соглашение, включая автоматическую отправку технических отчётов</span></label>
+  <div class="row"><button class="btn" id="agrNo">Отказаться</button><button class="btn pri" id="agrYes" disabled>Принять</button></div>
+</div>
 <script>
 (function(){
 "use strict";
@@ -259,7 +273,32 @@ function apply(st){
 }
 function cls(l){if(/ошибк|не удалось|FAIL|не запустил|не ответил|^.{10}-/i.test(l))return"e";if(/^.{10}\+|работает|отвечает/.test(l))return"g";if(/==/.test(l))return"h";return""}
 function logs(lines){const box=$("#fullLog");const f=document.createDocumentFragment();lines.forEach(l=>{const d=document.createElement("div");const c=cls(l);if(c)d.className=c;d.textContent=l;f.appendChild(d)});box.appendChild(f);while(box.childElementCount>500)box.firstElementChild.remove()}
-window.__push=m=>{if(m.state)apply(m.state);if(m.logs)logs(m.logs);(m.events||[]).forEach(e=>{if(e.t==="toast")toast(e.text);if(e.t==="go")go(e.p)})};
+/* пользовательское соглашение */
+function mdHtml(t){
+  const esc=x=>x.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  let h="",inUl=false;
+  t.split("\n").forEach(l=>{
+    l=esc(l).replace(/\*\*(.+?)\*\*/g,"<b>$1</b>");
+    if(/^- /.test(l)){if(!inUl){h+="<ul>";inUl=true}h+="<li>"+l.slice(2)+"</li>";return}
+    if(inUl){h+="</ul>";inUl=false}
+    if(/^# /.test(l))h+="<h2>"+l.slice(2)+"</h2>";else if(/^## /.test(l))h+="<h3>"+l.slice(3)+"</h3>";else if(l.trim())h+="<p style='margin:4px 0'>"+l+"</p>";
+  });
+  return h+(inUl?"</ul>":"");
+}
+let agrOpen=false,agrMust=false;
+function showAgreement(must){
+  if(agrOpen&&!must)return;agrOpen=true;agrMust=must;
+  call("agreement").then(t=>{$("#agrText").innerHTML=mdHtml(t||"");$("#agrText").scrollTop=0});
+  $("#agrChkL").style.display=must?"":"none";$("#agrYes").style.display=must?"":"none";
+  $("#agrNo").textContent=must?"Отказаться":"Закрыть";$("#agrChk").checked=false;$("#agrYes").disabled=true;
+  $("#agr").classList.add("on");
+}
+$("#agrChk").addEventListener("change",e=>{$("#agrYes").disabled=!e.target.checked});
+$("#agrYes").addEventListener("click",()=>{agrOpen=false;$("#agr").classList.remove("on");call("consent","1");toast("Соглашение принято")});
+$("#agrNo").addEventListener("click",()=>{agrOpen=false;$("#agr").classList.remove("on");if(agrMust)call("consent","0")});
+$("#agrShow").addEventListener("click",()=>showAgreement(false));
+
+window.__push=m=>{if(m.state)apply(m.state);if(m.state&&m.state.needConsent&&!agrOpen)showAgreement(true);if(m.logs)logs(m.logs);(m.events||[]).forEach(e=>{if(e.t==="consent")showAgreement(true);if(e.t==="toast")toast(e.text);if(e.t==="go")go(e.p)})};
 
 /* фон */
 function applyBg(b){if(!b)return;const has=!!b.url,img=$("#bgimg");document.body.classList.toggle("hasbg",has);

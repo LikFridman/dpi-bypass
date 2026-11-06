@@ -22,8 +22,11 @@ import (
 )
 
 type ISPInfo struct {
-	ASN  string // "AS12389"
-	Name string // "Rostelecom"
+	ASN     string // "AS12389"
+	Name    string // "Rostelecom"
+	IP      string // внешний IP мимо VPN (для отчётов)
+	City    string
+	Country string
 }
 
 var (
@@ -51,21 +54,21 @@ func ispClient() *http.Client {
 func fetchISP() *ISPInfo {
 	cl := ispClient()
 	// 1) ip-api.com
-	if resp, err := cl.Get("http://ip-api.com/json/?fields=status,isp,org,as"); err == nil {
-		var r struct{ Status, ISP, Org, AS string }
+	if resp, err := cl.Get("http://ip-api.com/json/?fields=status,isp,org,as,query,city,country"); err == nil {
+		var r struct{ Status, ISP, Org, AS, Query, City, Country string }
 		json.NewDecoder(io.LimitReader(resp.Body, 16<<10)).Decode(&r)
 		resp.Body.Close()
 		if asn := asnRe.FindString(r.AS); asn != "" {
-			return &ISPInfo{ASN: asn, Name: firstNonEmpty(r.ISP, r.Org)}
+			return &ISPInfo{ASN: asn, Name: firstNonEmpty(r.ISP, r.Org), IP: r.Query, City: r.City, Country: r.Country}
 		}
 	}
 	// 2) ipinfo.io
 	if resp, err := cl.Get("https://ipinfo.io/json"); err == nil {
-		var r struct{ Org string }
+		var r struct{ Org, IP, City, Country string }
 		json.NewDecoder(io.LimitReader(resp.Body, 16<<10)).Decode(&r)
 		resp.Body.Close()
 		if asn := asnRe.FindString(r.Org); asn != "" {
-			return &ISPInfo{ASN: asn, Name: strings.TrimSpace(strings.TrimPrefix(r.Org, asn))}
+			return &ISPInfo{ASN: asn, Name: strings.TrimSpace(strings.TrimPrefix(r.Org, asn)), IP: r.IP, City: r.City, Country: r.Country}
 		}
 	}
 	return nil

@@ -70,7 +70,11 @@ func selftest() int {
 		res := probeAll(svcs)
 		say("%s", statusLine(svcs, res))
 		printTable(svcs, res)
-		check("пинг измеряется", avgPing(res) > 0, "ни один сайт не ответил")
+		pd := ""
+		if avgPing(res) == 0 {
+			pd = "ни один сайт не ответил"
+		}
+		check("пинг измеряется", avgPing(res) > 0, pd)
 		w.Stop()
 	}
 	px := &tg.TGProxy{Secret: make([]byte, 16)}

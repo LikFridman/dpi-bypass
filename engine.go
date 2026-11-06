@@ -73,6 +73,12 @@ func requestTune() bool {
 }
 
 func startBypass(mode int, reselect bool) {
+	if !consentOK() {
+		if guiMode || !askConsentConsole() {
+			bad("Обход не включён: сначала нужно принять пользовательское соглашение.")
+			return
+		}
+	}
 	stopEngine()
 	e := &engineRun{stop: make(chan struct{}), done: make(chan struct{}), tune: make(chan struct{}, 1)}
 	engMu.Lock()
@@ -154,6 +160,7 @@ func diagnose(svcs []Service) map[string]SvcResult {
 	info("Определяю IP, TCP, TLS и загрузку данных для %d сервисов...", len(svcs))
 	res := probeAll(svcs)
 	printTable(svcs, res)
+	tmSetBaseline(res)
 	return res
 }
 
@@ -171,6 +178,7 @@ func testStrategies(list []Strategy, cands []Service, stopWhenAll bool) map[stri
 		fmt.Fprintf(out, "  %s %-42s ", col(cGray, fmt.Sprintf("[%2d/%d]", i+1, len(list))), st.Name)
 		w, err := startWinws(testArgs(st))
 		if err != nil {
+			tmRecordStrategy(st, cands, nil, err)
 			say("%s", col(cYellow, "не запустилась"))
 			if i == 0 {
 				say("%s", col(cGray, "      "+strings.ReplaceAll(err.Error(), "\n", "\n      ")))
@@ -189,6 +197,7 @@ func testStrategies(list []Strategy, cands []Service, stopWhenAll bool) map[stri
 			parts = append(parts, fmt.Sprintf("%s %s", mark(ok), s.Name))
 		}
 		say("%s", strings.Join(parts, "  "))
+		tmRecordStrategy(st, cands, works[st.ID], nil)
 		if all && stopWhenAll {
 			say("%s", col(cGreen, "      -> эта стратегия открывает всё, дальше можно не искать"))
 			break
@@ -438,6 +447,11 @@ func runForever(cfg *Config, svcs []Service, e *engineRun) {
 
 	writeDirectList(cfg, svcs)
 	startTelegram(openTGLink, cfg)
+	// отчёт о подключении - когда Telegram успеет поработать
+	go func() {
+		time.Sleep(20 * time.Second)
+		sendReport("connect")
+	}()
 
 	say("")
 	if guiMode {
@@ -523,6 +537,7 @@ func runForever(cfg *Config, svcs []Service, e *engineRun) {
 			if w, err = startCombined(cfg, svcs); err != nil {
 				bad("%v", err)
 				setStatus("Ошибка: winws не запускается - смотри журнал")
+				tmError("winws не запускается: %v", err)
 				continue
 			}
 		}
@@ -554,6 +569,7 @@ func runForever(cfg *Config, svcs []Service, e *engineRun) {
 		}
 		if need && time.Since(lastReselect) > 10*time.Minute {
 			warn("%s Сервисы перестали открываться - провайдер поменял блокировку, подбираю заново", ts())
+			tmError("сервисы перестали открываться: %s", line)
 			w.Stop()
 			ok := guard(func() { cfg = selectConfig(svcs, cfg) })
 			lastReselect = time.Now()

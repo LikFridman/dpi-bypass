@@ -18,6 +18,7 @@ object TgProxy {
     @Volatile var ready = false
     @Volatile var stats = ""
     @Volatile var lastError = ""
+    @Volatile var routes = "{}" // JSON: способ -> [удачно, неудачно]
 
     fun binary(ctx: Context) = File(ctx.applicationInfo.nativeLibraryDir, "libtgproxy.so")
 
@@ -62,9 +63,11 @@ object TgProxy {
                             if (n.size == 5 && n[1] > 0)
                                 stats = "connections ${n[1]} (active ${n[0]}) · WebSocket ${n[2]} · TCP ${n[3]} · failed ${n[4]}"
                         }
+                        line.startsWith("ROUTES ") -> routes = line.removePrefix("ROUTES ")
                         line.startsWith("LOG ") -> Engine.log(line.removePrefix("LOG "))
                         line.startsWith("ERR ") -> {
                             lastError = line.removePrefix("ERR ")
+                            Report.error("Telegram-прокси: $lastError")
                             Engine.log("Telegram: ошибка прокси - $lastError")
                         }
                         line.isNotBlank() -> Engine.log("tgproxy: $line")

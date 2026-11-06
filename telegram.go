@@ -152,6 +152,9 @@ func tgRoutes(px *tg.TGProxy) []tg.TGRoute {
 }
 
 func tgHint(ipBlocked bool) {
+	if !ipBlocked {
+		tmError("Telegram не подключился ни одним способом")
+	}
 	if ipBlocked {
 		warn("IP-адреса Telegram у твоего провайдера заблокированы - обход DPI их не откроет.")
 	} else {
