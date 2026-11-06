@@ -151,8 +151,12 @@ jobs:
         run: |
           mkdir -p deps && cd deps
           git clone -q https://github.com/hufrea/byedpi.git byedpi
+          # нужные версии берём по номеру коммита явно: авторы иногда переписывают историю ветки,
+          # и коммит пропадает из обычного клона (так сломалась сборка 2.5)
+          git -C byedpi fetch -q origin e2684772fbda45f2ff4fc220922a010370534216 || true
           git -C byedpi checkout -q e2684772fbda45f2ff4fc220922a010370534216
           git clone -q https://github.com/heiher/hev-socks5-tunnel.git hev
+          git -C hev fetch -q origin 21bb3d77e64ad5a413d4d851b9f4cacf2098cd77 || true
           git -C hev checkout -q 21bb3d77e64ad5a413d4d851b9f4cacf2098cd77
           git -C hev submodule update -q --init --recursive
 
