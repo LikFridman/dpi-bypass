@@ -47,6 +47,13 @@ class MainActivity : Activity() {
         Report.installCrashHandler(this)
         Engine.nativeDir = applicationInfo.nativeLibraryDir
         Engine.useDoH = Store.doh(this)
+        safeThread {
+            val v = Updater.fetch()
+            if (v.isNotEmpty() && Updater.newer(v, BuildConfigVersion.name(this))) {
+                Engine.log("Доступна новая версия $v - Settings → Updates")
+                event(JSONObject().put("t", "update").put("v", v))
+            }
+        }.start()
         if (Store.consentOK(this)) {
             Report.sendPendingCrash(this)
             // отчёт при каждом запуске (не при повороте экрана)
@@ -346,6 +353,31 @@ class MainActivity : Activity() {
                         toast("Запасной прокси добавлен")
                         TgProxy.restartIfRunning(this@MainActivity)
                     }
+                    null
+                }
+                "update" -> {
+                    safeThread {
+                        val v = Updater.fetch()
+                        val cur = BuildConfigVersion.name(this@MainActivity)
+                        when {
+                            v.isEmpty() -> toast("GitHub не ответил - проверь интернет")
+                            Updater.newer(v, cur) -> {
+                                Engine.log("Доступна версия $v (сейчас $cur) - открываю загрузку APK")
+                                toast("Новая версия $v - скачай и установи APK")
+                                ui.post { runCatching { Updater.openDownload(this@MainActivity) } }
+                            }
+                            else -> toast("Установлена последняя версия ($cur)")
+                        }
+                    }.start()
+                    null
+                }
+                "reset" -> {
+                    safeThread {
+                        if (Engine.running) BypassVpnService.stop(this@MainActivity)
+                        Store.resetStrategies(this@MainActivity)
+                        Engine.log("Настройки обхода сброшены: при следующем включении - подбор заново")
+                        toast("Сброшено: при включении стратегии подберутся заново")
+                    }.start()
                     null
                 }
                 "tgTest" -> {

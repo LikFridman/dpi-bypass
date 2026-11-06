@@ -222,6 +222,8 @@ input[type=range]{accent-color:var(--accent);width:100%}
         <div class="set"><div><b>Start on boot</b><span>после перезагрузки обход включится сам</span></div><button class="tog sm" id="togBoot" aria-label="Start on boot"><i></i></button></div>
         <div class="set"><div><b>Always-on VPN</b><span>в настройках Android можно сделать обход «всегда включённым»</span></div><button class="btn" data-a="vpnSettings" style="min-height:36px">Open</button></div>
         <div class="set"><div><b>Quick tile</b><span>«Обход DPI» — добавь плитку в шторку, чтобы включать одним касанием</span></div></div>
+        <div class="set"><div><b>Updates</b><span id="updLine">проверить новую версию на GitHub</span></div><button class="btn" data-a="update" style="min-height:36px">Check</button></div>
+        <div class="set"><div><b>Reset</b><span>забыть подобранные стратегии (все сети) и закрепления - при включении подбор заново</span></div><button class="btn" data-a="reset" style="min-height:36px">Reset</button></div>
         <div class="set"><div><b>Send report</b><span>технический отчёт разработчику — если что-то не работает</span></div><button class="btn" data-a="report" style="min-height:36px">Send</button></div>
         <div class="set"><div><b>User agreement</b><span>что собирается в отчётах и зачем</span></div><button class="btn" id="agrShow" style="min-height:36px">Open</button></div>
         <div class="set"><div><b>GitHub</b><span id="verLine"></span></div><button class="btn" data-a="github" style="min-height:36px">Open</button></div>
@@ -373,7 +375,7 @@ $("#agrYes").addEventListener("click",()=>{agrOpen=false;agrMust=false;$("#agr")
 $("#agrNo").addEventListener("click",()=>{if(agrMust)return;agrOpen=false;$("#agr").classList.remove("on")});
 $("#agrShow").addEventListener("click",()=>showAgreement(false));
 
-window.__push=m=>{if(m.state)apply(m.state);if(m.state&&m.state.needConsent&&!agrOpen&&!agrDone)showAgreement(true);if(m.logs)logs(m.logs);(m.events||[]).forEach(e=>{if(e.t==="stratUpdated"&&shSite)loadSheet();if(e.t==="consent")showAgreement(true);if(e.t==="toast")toast(e.text);if(e.t==="go")go(e.p)})};
+window.__push=m=>{if(m.state)apply(m.state);if(m.state&&m.state.needConsent&&!agrOpen&&!agrDone)showAgreement(true);if(m.logs)logs(m.logs);(m.events||[]).forEach(e=>{if(e.t==="stratUpdated"&&shSite)loadSheet();if(e.t==="consent")showAgreement(true);if(e.t==="toast")toast(e.text);if(e.t==="update"){toast("Доступна версия "+e.v+" - Settings → Updates");$("#updLine").textContent="доступна версия "+e.v+" - нажми Check, чтобы скачать"}if(e.t==="go")go(e.p)})};
 
 /* фон */
 function applyBg(b){if(!b)return;const has=!!b.url,img=$("#bgimg");document.body.classList.toggle("hasbg",has);

@@ -24,6 +24,7 @@ import (
 	"unsafe"
 
 	webview2 "github.com/jchv/go-webview2"
+	"net"
 )
 
 //go:embed ui/index.html
@@ -571,6 +572,27 @@ func webCall(cmd, arg string) (any, error) {
 		} else {
 			openURL(shareURL(cfg))
 		}
+	case "tgTest":
+		go func() {
+			// как приложение Telegram: через наш прокси (если работает), иначе MTProto напрямую к DC2
+			var d time.Duration
+			var err error
+			how := "напрямую"
+			px := tgProxy
+			if px != nil {
+				how = "через прокси программы"
+				d, err = tg.Check(px.Addr(), px.Secret, 2)
+			} else {
+				d, err = tg.CheckDC(func(addr string) (net.Conn, error) { return newDialer(6*time.Second).Dial("tcp4", addr) }, 2, 10*time.Second)
+			}
+			if err != nil {
+				warn("Telegram не ответил (%s): %v", how, err)
+				uiToast("Telegram не ответил: " + shortErr(err))
+				return
+			}
+			info("Telegram отвечает (%s): ping %d ms", how, d.Milliseconds())
+			uiToast(fmt.Sprintf("Telegram отвечает: ping %d ms", d.Milliseconds()))
+		}()
 	case "tgOpen":
 		if tgCurrentLink == "" {
 			uiToast("Прокси для Telegram запускается вместе с обходом - сначала включи обход.")

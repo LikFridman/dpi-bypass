@@ -31,6 +31,16 @@ object Store {
         e.apply()
     }
 
+    /** Сброс подбора: планы (общий и по сетям), результаты проверок, закрепления, найденные стратегии */
+    fun resetStrategies(ctx: Context) {
+        val e = p(ctx).edit()
+        for (k in p(ctx).all.keys) {
+            if (k == "plan" || k == "strategy" || k.startsWith("plan@") || k.startsWith("planAt@") ||
+                k in listOf("matrix", "pins", "custom", "unfixable", "worked")) e.remove(k)
+        }
+        e.apply()
+    }
+
     /** План, подобранный в этой сети (null - здесь подбора ещё не было) */
     fun planFor(ctx: Context, key: String): Plan? = if (key.isEmpty()) null else Plan.fromJson(p(ctx).getString("plan@$key", null))
     fun planAt(ctx: Context, key: String) = p(ctx).getLong("planAt@$key", 0)

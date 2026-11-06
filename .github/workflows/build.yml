@@ -195,6 +195,7 @@ jobs:
           gradle -p android assembleRelease --no-daemon --stacktrace
           cp android/app/build/outputs/apk/release/app-release.apk dpi-bypass.apk
           sha256sum dpi-bypass.apk | tee dpi-bypass.apk.sha256
+          echo "$APP_VERSION" > dpi-bypass-android.version
 
       - name: KVM для эмулятора
         run: |
@@ -229,7 +230,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f dpi-bypass.apk dpi-bypass.apk.sha256
+          git add -f dpi-bypass.apk dpi-bypass.apk.sha256 dpi-bypass-android.version
           if git diff --cached --quiet; then echo "без изменений"; exit 0; fi
           git commit -m "Сборка dpi-bypass.apk (GitHub Actions) [skip ci]"
           git pull --rebase -X theirs origin main
