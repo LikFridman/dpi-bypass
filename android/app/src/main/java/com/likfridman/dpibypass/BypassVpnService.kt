@@ -126,6 +126,7 @@ class BypassVpnService : VpnService() {
                 return
             }
             Engine.running = true
+            Engine.results = emptyMap(); Engine.checkedAt = 0 // старые проверки (без обхода) - не показывать
             ToggleTile.update(this)
             Engine.starting = false
             Engine.log("Обход работает: ${Pool.describe()}" + (if (Pool.routerReady) "" else " (без маршрутизатора)"))
@@ -271,6 +272,7 @@ class BypassVpnService : VpnService() {
         Engine.cancel = true
         shutdownTunnel()
         Engine.running = false
+        Engine.results = emptyMap(); Engine.checkedAt = 0
         ToggleTile.update(this)
         Engine.starting = false
         Engine.results = emptyMap()

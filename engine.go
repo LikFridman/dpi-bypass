@@ -321,6 +321,13 @@ func coverGroups(list []Strategy, cands []Service, works map[string]map[string]b
 
 // selectConfig подбирает стратегии; prev - старые настройки (свои стратегии для сайтов сохраняются)
 func selectConfig(svcs []Service, prev *Config) *Config {
+	// после подбора - отчёт с полной таблицей проверенных стратегий (что сработало, что нет и почему)
+	defer func() {
+		go func() {
+			time.Sleep(3 * time.Second)
+			sendReport("select")
+		}()
+	}()
 	setStatus("Checking sites…")
 	base := diagnose(svcs)
 	cfg := &Config{Created: time.Now(), Unfixable: map[string]string{}, ISP: currentISP().ASN}

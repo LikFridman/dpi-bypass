@@ -554,6 +554,8 @@ object Engine {
         val pl = Plan(def, groups.map { PlanGroup(it.key, it.value) }.take(5) + listOfNotNull(none?.let { PlanGroup(NONE, it) }), ytK)
         Store.setPlan(ctx, pl)
         assign.values.toSet().forEach { Store.recordWorked(ctx, it) }
+        // после подбора - отчёт с полной таблицей проверенных стратегий
+        if (cands.isNotEmpty()) Report.send(ctx, "select")
         log("План: по умолчанию ${strategyById(def)?.name}" + pl.groups.joinToString("") { "; ${it.sites.joinToString()} → ${strategyName(it.strategy)}" })
         return pl
     }
@@ -673,7 +675,7 @@ object Engine {
             val sites = activeSites(ctx)
             val r = probeAll(port, sites)
             sites.forEach { s -> r[s.name]?.let { log("  " + probeLine(s.name, it), if (it.ok) 'i' else 'e') } }
-            if (running) { results = r; checkedAt = System.currentTimeMillis() }
+            results = r; checkedAt = System.currentTimeMillis() // показывать и без обхода (что открывается напрямую)
             log("Работают ${r.values.count { it.ok }} из ${r.size}" + (avgPing(r).takeIf { it > 0 }?.let { " · ping ~$it ms" } ?: ""))
             return r
         } finally {
@@ -709,14 +711,18 @@ object Engine {
                 .put("chosen", s.name in ch).put("none", isNone)
             val p = results[s.name]
             when {
-                s.name !in ch || isNone -> r.put("kind", "idle").put("label", "off").put("detail", if (isNone) "без обхода (None)" else "не выбран - без обхода")
-                p != null && (running || pinging || checkedAt > 0) -> {
+                // не выбран или None - серым «none»: обход его не трогает и не проверяет
+                s.name !in ch || isNone -> r.put("kind", "idle").put("label", "none").put("detail", if (isNone) "без обхода (None)" else "не выбран - без обхода")
+                // результат проверки (Ping all или фоновая проверка) - пинг зелёным или ошибка красным
+                p != null && checkedAt > 0 -> {
                     total++
                     if (p.ok) ok++
                     r.put("kind", if (p.ok) "ok" else "bad").put("label", if (p.ok) p.label else "none").put("detail", p.detail)
                 }
                 unfix.contains(s.name) -> r.put("kind", "bad").put("label", "none").put("detail", "блок по IP: нужен VPN")
-                running -> r.put("kind", "idle").put("label", "checking…")
+                // обход включён, проверки ещё не было - зелёным «on»
+                running -> r.put("kind", "ok").put("label", "on").put("detail", "обход включён · Ping all - проверить")
+                starting || busy -> r.put("kind", "idle").put("label", "…").put("detail", "подбор стратегий")
                 else -> r.put("kind", "idle").put("label", "off")
             }
             rows.put(r)

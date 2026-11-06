@@ -302,6 +302,11 @@ func buildReport(trigger string) map[string]any {
 	}
 	rep["telegram"] = tgInfo
 	rep["dns"] = dohStats()
+	rep["strategy_results"] = resultsCopy() // стратегия -> сервис -> результат проверки с нагрузкой
+	if cfg := loadConfigCached(); cfg != nil {
+		rep["pins"] = cfg.Pins
+	}
+	rep["chosen_sites"] = map[string]any{"set": settings.SitesSet, "sites": settings.Sites}
 	if pr, at := lastPing(); pr != nil {
 		rep["ping_all"] = map[string]any{"at": at.Format(time.RFC3339), "sites": pr}
 	}

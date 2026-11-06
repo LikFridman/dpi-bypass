@@ -278,7 +278,7 @@ func siteRows() ([]uiSiteRow, int, int, string) {
 		row.Chosen = !settings.SitesSet || serviceChosen(s.Name)
 		row.None = cfg != nil && cfg.Pins[s.Name] == NoneID
 		if !row.Chosen || row.None {
-			row.Kind, row.Label, row.Strategy = "idle", "off", "None"
+			row.Kind, row.Label, row.Strategy = "idle", "none", "None"
 			row.Detail = "не выбран - без обхода"
 			if row.None {
 				row.Detail = "без обхода (None)"
@@ -329,10 +329,13 @@ func siteRows() ([]uiSiteRow, int, int, string) {
 			} else if has {
 				row.Kind, row.Label, row.Detail = "bad", "none", stageNames[r.Stage]+": "+r.Reason
 			} else {
-				row.Kind, row.Label = "idle", "checking…"
+				row.Kind, row.Label, row.Detail = "ok", "on", "обход включён · Ping all - проверить"
 			}
 		case running:
-			row.Kind, row.Label = "idle", "checking…"
+			// обход включён, проверки ещё не было - зелёным «on»
+			row.Kind, row.Label, row.Detail = "ok", "on", "обход включён · Ping all - проверить"
+		case busy.Load() || engineGoroutine.Load():
+			row.Kind, row.Label, row.Detail = "idle", "…", "подбор стратегий"
 		default:
 			row.Kind, row.Label = "idle", "off"
 		}

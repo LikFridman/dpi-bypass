@@ -93,10 +93,16 @@ h2{margin:0;font-size:15px;font-weight:700}
 #chList input{width:20px;height:20px;accent-color:#6f8cff}
 .sheet .box{width:100%;max-height:86vh;display:flex;flex-direction:column;border-radius:24px 24px 0 0;background:rgba(18,21,48,.98);border:1px solid var(--line);padding:16px 14px calc(var(--bot) + 14px);gap:10px}
 .sheet .lst{overflow-y:auto;flex:1;min-height:0}
-.st{display:flex;align-items:center;gap:8px;padding:10px 4px;border-bottom:1px solid var(--sep)}
-.st .nm{flex:1;min-width:0}.st .nm b{font-size:13.5px;display:block}.st .nm small{font-size:11px;color:var(--dim);font-family:var(--mono);word-break:break-all}
-.st.cur{background:rgba(111,140,255,.14);border-radius:12px}
-.st .btn{min-height:32px;padding:0 10px;font-size:12px}
+/* строка стратегии: название и параметры во всю ширину, ниже - результат и кнопки */
+.st{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 10px;border-bottom:1px solid var(--sep)}
+.st .nm{flex:1 1 100%;min-width:0}.st .nm b{font-size:14px;display:block;line-height:1.3}
+.st .nm small{display:block;margin-top:3px;font-size:11.5px;line-height:1.4;color:var(--dim);font-family:var(--mono);overflow-wrap:anywhere}
+.st .bd{margin-right:auto}
+.st.cur{background:rgba(111,140,255,.14);border-radius:14px}
+.st .btn{flex:none;min-height:34px;padding:0 16px;font-size:12.5px}
+#sheet .box .head{gap:12px;align-items:flex-start}
+#sheet .box .head h2{margin:0;font-size:20px;flex:1;min-width:0}
+#sheet .box .head .btn{flex:none}
 .bd{font-size:11px;font-weight:600;padding:4px 10px;border-radius:999px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .bd.ok,.bd.custom{background:rgba(52,211,153,.16);color:var(--okText)}
 .bd.vpn{background:rgba(251,191,36,.16);color:var(--warnText)}
@@ -169,7 +175,7 @@ input[type=range]{accent-color:var(--accent);width:100%}
         <div class="ch"><h2>Sites</h2><span class="dim" style="font-size:12px" id="cnt"></span></div>
         <div id="homeSites"></div>
       </div>
-      <div class="row"><button class="btn pri" data-a="pingAll" id="pingBtn">Ping all</button><button class="btn" id="chooseHome">Choose sites</button><button class="btn" data-a="reselect">Re-tune</button></div>
+      <div class="row"><button class="btn pri" data-a="pingAll" id="pingBtn">Ping all</button><button class="btn" id="chooseHome">Choose</button><button class="btn" data-a="reselect">Re-tune</button></div>
       <div class="card glass pad note">На Android одновременно может работать только один VPN. Пока обход включён, он заменяет другой VPN (например, Happ). Сайты, заблокированные по IP, без настоящего VPN не откроются.</div>
     </section>
 
@@ -396,7 +402,7 @@ function loadSheet(){call("siteStrategies",shSite).then(d=>{if(!d)return;
   const L=d.list.slice().sort((a,b)=>(b.ok-a.ok)||(b.kbps-a.kbps)||(b.tested-a.tested));
   const nr=document.createElement("div");nr.className="st"+(d.pinned==="none"?" cur":"");
   const nn=document.createElement("div");nn.className="nm";const nb=document.createElement("b");nb.textContent="None · без обхода";const ns=document.createElement("small");ns.textContent="сервис идёт напрямую, как без программы; в подборе не участвует";nn.append(nb,ns);nr.appendChild(nn);
-  const nu=document.createElement("button");nu.className="btn"+(d.pinned==="none"?" pri":"");nu.textContent="Use";nu.onclick=()=>call("pin",shSite+"|none");nr.appendChild(nu);
+  const nb2=document.createElement("span");nb2.className="bd idle";nb2.textContent="direct";nr.appendChild(nb2);const nu=document.createElement("button");nu.className="btn"+(d.pinned==="none"?" pri":"");nu.textContent="Use";nu.onclick=()=>call("pin",shSite+"|none");nr.appendChild(nu);
   $("#shList").replaceChildren(nr,...L.map(x=>{const r=document.createElement("div");r.className="st"+(x.id===d.current?" cur":"");
     const n=document.createElement("div");n.className="nm";const b=document.createElement("b");b.textContent=x.id+" · "+x.name;const sm=document.createElement("small");sm.textContent=x.args+(x.reason&&!x.ok?" — "+x.reason:"");n.append(b,sm);r.appendChild(n);
     const [t,k]=stLine(x);const bd=document.createElement("span");bd.className="bd "+k;bd.textContent=t;r.appendChild(bd);

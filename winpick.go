@@ -79,6 +79,22 @@ func loadResults() map[string]map[string]stratRes {
 	return resCache
 }
 
+// resultsCopy - копия результатов (для отчёта: карту нельзя читать, пока в неё пишут)
+func resultsCopy() map[string]map[string]stratRes {
+	loadResults()
+	resMu.Lock()
+	defer resMu.Unlock()
+	out := make(map[string]map[string]stratRes, len(resCache))
+	for id, m := range resCache {
+		c := make(map[string]stratRes, len(m))
+		for k, v := range m {
+			c[k] = v
+		}
+		out[id] = c
+	}
+	return out
+}
+
 func recordResult(id, svc string, r stratRes) {
 	loadResults()
 	resMu.Lock()
@@ -164,7 +180,7 @@ func currentStrategyFor(cfg *Config, svc string) string {
 
 func siteStrategiesJSON(svc string) any {
 	cfg := loadConfigCached()
-	res := loadResults()
+	res := resultsCopy()
 	type row struct {
 		ID     string `json:"id"`
 		Name   string `json:"name"`
