@@ -10,7 +10,7 @@
 
 | | Windows | Android |
 |---|---|---|
-| Движок | [zapret](https://github.com/bol-van/zapret) `winws` + WinDivert | [byedpi](https://github.com/hufrea/byedpi) за `VpnService` через [hev-socks5-tunnel](https://github.com/heiher/hev-socks5-tunnel) |
+| Движок | [zapret](https://github.com/bol-van/zapret) `winws` + WinDivert | пул [byedpi](https://github.com/hufrea/byedpi) + свой SOCKS5-маршрутизатор за `VpnService` / [hev-socks5-tunnel](https://github.com/heiher/hev-socks5-tunnel) |
 | Требования | Win10+ x64, права администратора (драйвер WinDivert) | Android 8.0+ (API 26), arm64 / armv7 / x86_64 |
 | Telegram | локальный MTProto-прокси `127.0.0.1:1443` | то же, `libtgproxy.so` (общее Go-ядро) |
 | UI | WebView2, трей, автозапуск через планировщик | WebView, плитка QS, автозапуск при загрузке |
@@ -18,7 +18,8 @@
 ## Пайплайн
 
 1. **Baseline без обхода** — для каждого сервиса и каждого его адреса: DNS (системный, при подмене — DoH) → TCP:443 → TLS → чтение до 96 КБ. Результат классифицируется: `dns`, `tcp` (блок по IP, обходом не лечится), `tls` (сброс/зависание на SNI), `data`, `throttle` (обрыв после N КБ).
-2. **Подбор** — перебор стратегий только по сервисам со стадией `tls`/`data`/`throttle`. Первыми идут пресет провайдера по ASN (Windows) или ранее сработавшие на устройстве (Android). На Windows сервисы жадно покрываются минимальным набором стратегий (группы с отдельными hostlist), на Android берётся одна лучшая стратегия byedpi.
+2. **Подбор** — перебор стратегий только по сервисам со стадией `tls`/`data`/`throttle`. Первыми идут пресет провайдера по ASN (Windows) или ранее сработавшие на устройстве (Android). Сервисы жадно покрываются минимальным набором стратегий: на Windows — профили winws с отдельными hostlist, на Android — отдельные процессы byedpi, между которыми маршрутизатор раскладывает соединения по SNI.
+   **YouTube** проверяется по скорости, а не по факту ответа: через API плеера (`youtubei/v1/player`, клиенты ANDROID_VR/IOS) берётся прямая ссылка на поток googlevideo и качается до 8 МБ за 6 с. Если без обхода < 600 КБ/с, YouTube считается замедленным и идёт в подбор. Из стратегий, которые его открыли, для него берётся самая быстрая.
 3. **Сторож** — проверка раз в 60 с; если ≥ половины сервисов дважды подряд не отвечает — переподбор (не чаще раза в 10 мин). Перезапуск движка при падении, реакция на смену VPN/адаптера.
 4. **Автосписок** (Windows) — новые заблокированные домены попадают в `auto-hostlist`, для них раз в 30 мин подбирается своя стратегия.
 5. **Обновления** — стратегии, сервисы, пресеты, адрес отчётов и источники прокси приходят из [`update/update.json`](update/update.json) без пересборки (raw.githubusercontent → jsDelivr).
@@ -52,7 +53,17 @@ dpi-bypass.exe selftest        самопроверка (используетс�
 
 ## Android
 
-`VpnService` (весь трафик, IPv4+IPv6, приложение исключено через `addDisallowedApplication`) → hev-socks5-tunnel (JNI) → byedpi на `127.0.0.1:1080` → сеть. Одновременно активен только один VPN, поэтому обход замещает другой VPN-клиент.
+```
+VpnService (весь трафик, v4+v6; приложение исключено) → hev-socks5-tunnel (JNI) → маршрутизатор :1090
+   TCP:  SNI / HTTP Host → byedpi своей группы (:1081…) или по умолчанию (:1080)
+   TCP к сетям Telegram → byedpi; при сбоях (2 соединения без ответа за 2 мин) /24 уходит
+         в прозрачный WebSocket к kwsN.web.telegram.org на 15 мин — без прокси в самом Telegram
+   UDP 443 (QUIC) → drop: клиенты сразу переходят на TCP, где работает desync
+   UDP 50000–65535 (голос Discord) → byedpi :1089 с --udp-fake 6
+   прочий UDP (DNS и т.п.) → напрямую
+```
+
+Маршрутизатор и Telegram-прокси — одно Go-ядро (`libtgproxy.so`). 36 стратегий byedpi, первыми идут варианты без подмены TTL: у мобильных операторов fake-пакеты с малым TTL часто не доходят до DPI. В Settings: Block QUIC, Discord voice (UDP), режим Telegram `auto` / `ws` / `direct`. Одновременно активен только один VPN, поэтому обход замещает другой VPN-клиент.
 
 ## Telegram
 
@@ -74,7 +85,7 @@ dpi-bypass.exe selftest        самопроверка (используетс�
 
 CI ([`build.yml`](.github/workflows/build.yml)) на каждый push:
 - **windows-latest:** `go vet`, `go test`, сборка с ресурсами (goversioninfo), `selftest` (все стратегии в winws, полная конфигурация, пинг сервисов, запрос к Telegram через прокси, поиск публичных прокси, сборка отчёта), `uitest` (WebView2).
-- **ubuntu + эмулятор API 34:** byedpi и hev-socks5-tunnel через NDK из зафиксированных коммитов, `tgproxy` (Go, `CGO_ENABLED=0`) для трёх ABI, APK, самопроверка в эмуляторе (стратегии, VPN-туннель, Telegram, отчёт, UI).
+- **ubuntu + эмулятор API 34:** byedpi и hev-socks5-tunnel через NDK из зафиксированных коммитов, `tgproxy` (Go, `CGO_ENABLED=0`) для трёх ABI, APK, самопроверка в эмуляторе (все стратегии, пул byedpi + маршрутизатор, YouTube в своей группе, Telegram MTProto и WebSocket, скорость YouTube, VPN-туннель, отчёт, UI).
 
 Бинарники коммитит бот в `main`.
 

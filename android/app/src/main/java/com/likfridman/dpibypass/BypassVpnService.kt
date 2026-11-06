@@ -36,7 +36,6 @@ class BypassVpnService : VpnService() {
     }
 
     private var tun: ParcelFileDescriptor? = null
-    private var proxy: Process? = null
     private var worker: Thread? = null
     @Volatile private var stopping = false
 
@@ -99,15 +98,14 @@ class BypassVpnService : VpnService() {
             cm.allNetworks.any { cm.getNetworkCapabilities(it)?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) == true }
         }.getOrDefault(false) && tun == null
         try {
-            var st = Engine.strategyById(Store.strategy(this))
-            if (st == null || reselect) st = Engine.select(this)
+            var plan = Store.plan(this)
+            if (plan == null || reselect) plan = Engine.select(this)
             if (stopping) return
             Engine.status = "Starting…"
-            proxy = Engine.startProxy(this, st, Engine.PORT)
-            if (proxy?.isAlive != true) {
+            if (!Pool.start(this, plan)) {
                 Engine.log("byedpi не запустился - подбираю другую стратегию")
-                st = Engine.select(this)
-                proxy = Engine.startProxy(this, st, Engine.PORT)
+                plan = Engine.select(this)
+                Pool.start(this, plan)
             }
             if (!startTunnel()) {
                 Report.error("VPN-туннель не создан")
@@ -119,10 +117,10 @@ class BypassVpnService : VpnService() {
             }
             Engine.running = true
             Engine.starting = false
-            Engine.log("Обход работает: ${st.name}")
+            Engine.log("Обход работает: ${Pool.describe()}" + (if (Pool.routerReady) "" else " (без маршрутизатора)"))
             TgProxy.start(this, Engine.PORT)
             TgProxy.discoverAsync(this, false)
-            watch(st)
+            watch()
         } catch (e: Exception) {
             Report.error("сбой: ${e.javaClass.simpleName}: ${e.message}")
             Report.send(this, "error")
@@ -155,7 +153,7 @@ class BypassVpnService : VpnService() {
               ipv4: 198.18.0.1
               ipv6: 'fc00::1'
             socks5:
-              port: ${Engine.PORT}
+              port: ${Pool.tunnelPort()}
               address: 127.0.0.1
               udp: 'udp'
             misc:
@@ -167,12 +165,12 @@ class BypassVpnService : VpnService() {
     }
 
     /** Сторож: раз в минуту проверяет сайты через обход и перезапускает byedpi, если упал. */
-    private fun watch(start: Strategy) {
-        var st = start
+    private fun watch() {
         var fails = 0
         var reported = false
         while (!stopping) {
-            Engine.results = Engine.probeAll(Engine.PORT, Engine.sites.filter { !Store.unfixable(this).contains(it.name) })
+            // проверка тем же путём, что и трафик: через маршрутизатор (стратегии по сайтам)
+            Engine.results = Engine.probeAll(Pool.tunnelPort(), Engine.sites.filter { !Store.unfixable(this).contains(it.name) })
             Engine.checkedAt = System.currentTimeMillis()
             val ok = Engine.results.values.count { it.ok }
             val total = Engine.results.size
@@ -192,20 +190,16 @@ class BypassVpnService : VpnService() {
                 Engine.log("Сайты перестали открываться - подбираю стратегию заново")
                 Report.error("сайты перестали открываться: $ok из $total")
                 Report.send(this, "error")
-                Engine.stopProxy(proxy)
-                st = Engine.select(this)
-                proxy = Engine.startProxy(this, st, Engine.PORT)
+                Pool.stopAll()
+                val pl = Engine.select(this)
+                Pool.start(this, pl)
                 fails = 0
                 continue
             }
             if (System.currentTimeMillis() - TgProxy.foundAt > 30 * 60_000L) TgProxy.discoverAsync(this, false)
             for (i in 0 until 60) {
                 if (stopping) return
-                if (proxy?.isAlive != true) {
-                    Engine.log("byedpi завершился - перезапускаю")
-                    Report.error("byedpi завершился")
-                    proxy = Engine.startProxy(this, st, Engine.PORT)
-                }
+                if (i % 5 == 0) Pool.ensureAlive(this)
                 Thread.sleep(1000)
             }
         }
@@ -216,8 +210,7 @@ class BypassVpnService : VpnService() {
         runCatching { if (TProxyService.TProxyIsRunning()) TProxyService.TProxyStopService() }
         runCatching { tun?.close() }
         tun = null
-        Engine.stopProxy(proxy)
-        proxy = null
+        Pool.stopAll()
     }
 
     private fun shutdown() {

@@ -64,6 +64,22 @@ object SelfTest {
         Log.i(TAG, if (tgMs != null) "INFO Telegram ok $tgMs ms" else "INFO Telegram fail $tgErr")
         TgProxy.stop()
         Engine.stopProxy(p)
+        // пул byedpi (по умолчанию + отдельная стратегия для YouTube + UDP) и маршрутизатор
+        val pl = Plan(Engine.strategies[0].id, listOf(PlanGroup(Engine.strategies[1].id, listOf("YouTube"))))
+        val poolOk = Pool.start(a, pl)
+        check("пул byedpi и маршрутизатор", poolOk && Pool.routerReady, Pool.describe())
+        val rr = Engine.probe("www.google.com", Engine.ROUTER_PORT)
+        check("сайт через маршрутизатор", rr.ok, rr.reason)
+        val ry = Engine.probe("www.youtube.com", Engine.ROUTER_PORT)
+        check("YouTube через маршрутизатор (своя группа)", ry.ok, ry.reason)
+        val tgr = Engine.probeAll(Engine.ROUTER_PORT, Engine.sites.filter { it.name == "Telegram" })["Telegram"]
+        check("Telegram через маршрутизатор", tgr?.ok == true, "${tgr?.label} ${tgr?.reason}")
+        Thread.sleep(10_500)
+        Log.i(TAG, "INFO router " + Pool.routerStats)
+        val sp = Engine.speedTest(Engine.PORT)
+        out.appendLine("INFO скорость YouTube через byedpi: $sp КБ/с (${Engine.lastSpeedMethod})")
+        Log.i(TAG, "INFO youtube speed $sp KB/s ${Engine.lastSpeedMethod}")
+        Pool.stopAll()
         val direct = Engine.probe("www.google.com", null)
         check("сайт напрямую", direct.ok, direct.reason)
         check("пинг измеряется", direct.ms > 0, direct.label)
@@ -76,7 +92,7 @@ object SelfTest {
         check("страница", page == "[]", page ?: "нет ответа")
 
         if (VpnService.prepare(a) == null) {
-            Store.setStrategy(a, Engine.strategies.first().id)
+            Store.setPlan(a, Plan(Engine.strategies.first().id, emptyList()))
             BypassVpnService.start(a)
             var up = false
             for (i in 0 until 60) { if (Engine.running) { up = true; break }; Thread.sleep(500) }

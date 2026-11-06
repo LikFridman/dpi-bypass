@@ -14,8 +14,11 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
+	"dpibypass/router"
+	"dpibypass/speed"
 	"dpibypass/tg"
 )
 
@@ -43,6 +46,8 @@ func main() {
 	socks := flag.String("socks", "", "SOCKS5 обхода DPI (byedpi), например 127.0.0.1:1080")
 	worker := flag.String("worker", "", "свой Cloudflare Worker")
 	check := flag.String("check", "", "проверить уже запущенный прокси по этому адресу и выйти")
+	routerCfg := flag.String("router", "", "запустить маршрутизатор SOCKS5 по JSON-настройкам из файла")
+	speedTest := flag.Bool("speed", false, "замерить скорость видео YouTube (через -socks, если задан) и выйти")
 	checkDC := flag.Bool("check-dc", false, "проверить Telegram как приложение: MTProto напрямую к DC2 (через -socks, если задан) и выйти")
 	checkWS := flag.Bool("check-ws", false, "проверить маршрут WebSocket к web.telegram.org (через -socks, если задан) и выйти")
 	discover := flag.Bool("discover", false, "найти и проверить публичные MTProto-прокси, вывести лучшие и выйти")
@@ -87,6 +92,27 @@ func main() {
 	}
 	if *discover {
 		runDiscover(srcs, *socks, *want)
+		return
+	}
+	if *routerCfg != "" {
+		runRouter(*routerCfg)
+		return
+	}
+	if *speedTest {
+		cl := &http.Client{Timeout: 20 * time.Second}
+		if *socks != "" {
+			sa := *socks
+			cl.Transport = &http.Transport{DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return tg.SocksDial(sa, addr)
+			}}
+		}
+		r, err := speed.YouTube(cl, 6*time.Second)
+		if err != nil {
+			fmt.Printf("SPEED FAIL %v\n", err)
+			os.Exit(1)
+		}
+		b, _ := json.Marshal(r)
+		fmt.Printf("SPEED %s\n", b)
 		return
 	}
 
@@ -201,4 +227,36 @@ func runDiscover(srcs []string, socks string, want int) {
 		fmt.Printf("FOUND %s\n", b)
 	}
 	fmt.Println("DONE")
+}
+
+// runRouter - маршрутизатор между VPN-туннелем и byedpi (см. пакет router)
+func runRouter(path string) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Printf("ERR %v\n", err)
+		os.Exit(2)
+	}
+	var cfg router.Config
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		fmt.Printf("ERR %v\n", err)
+		os.Exit(2)
+	}
+	r := router.New(cfg)
+	r.Log = func(format string, a ...any) { fmt.Println("LOG " + fmt.Sprintf(format, a...)) }
+	if err := r.Listen(); err != nil {
+		fmt.Printf("ERR %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("READY %s\n", r.Addr())
+	for {
+		time.Sleep(10 * time.Second)
+		groups := map[string]int64{}
+		r.St.ByGroup.Range(func(k, v any) bool {
+			groups[k.(string)] = v.(*atomic.Int64).Load()
+			return true
+		})
+		st, _ := json.Marshal(map[string]any{"tcp": r.St.TCP.Load(), "udp": r.St.UDP.Load(), "quic_dropped": r.St.QUICDropped.Load(),
+			"tg_direct": r.St.TGDirect.Load(), "tg_ws": r.St.TGWS.Load(), "errors": r.St.Errors.Load(), "groups": groups})
+		fmt.Printf("RSTATS %s\n", st)
+	}
 }

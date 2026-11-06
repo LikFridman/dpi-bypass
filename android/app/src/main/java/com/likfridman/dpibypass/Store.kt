@@ -21,6 +21,22 @@ object Store {
     fun setBgOpts(ctx: Context, dim: Int, blur: Int) =
         p(ctx).edit().putInt("bgDim", dim.coerceIn(0, 90)).putInt("bgBlur", blur.coerceIn(0, 30)).apply()
 
+    /** План обхода (стратегии по сайтам) */
+    fun plan(ctx: Context): Plan? = Plan.fromJson(p(ctx).getString("plan", null))
+    fun setPlan(ctx: Context, pl: Plan) = p(ctx).edit().putString("plan", pl.toJson().toString()).putString("strategy", pl.default).apply()
+
+    /** Отбрасывать QUIC (UDP 443), чтобы YouTube шёл по TCP через обход */
+    fun blockQuic(ctx: Context) = p(ctx).getBoolean("blockQuic", true)
+    fun setBlockQuic(ctx: Context, v: Boolean) = p(ctx).edit().putBoolean("blockQuic", v).apply()
+
+    /** UDP голоса Discord через byedpi с фейковыми пакетами */
+    fun discordUdp(ctx: Context) = p(ctx).getBoolean("discordUdp", true)
+    fun setDiscordUdp(ctx: Context, v: Boolean) = p(ctx).edit().putBoolean("discordUdp", v).apply()
+
+    /** Telegram: auto (WebSocket при сбоях) | ws (всегда WebSocket) | direct */
+    fun tgMode(ctx: Context): String = p(ctx).getString("tgMode", "auto") ?: "auto"
+    fun setTgMode(ctx: Context, v: String) = p(ctx).edit().putString("tgMode", v).apply()
+
     /** Принятая версия пользовательского соглашения (0 - не принято). */
     const val AGREEMENT_VERSION = 2
     fun consentOK(ctx: Context) = p(ctx).getInt("consent", 0) >= AGREEMENT_VERSION

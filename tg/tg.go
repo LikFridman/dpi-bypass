@@ -654,6 +654,8 @@ func socks5Dial(proxy, target string) (net.Conn, error) {
 	req := []byte{5, 1, 0}
 	if ip := net.ParseIP(host).To4(); ip != nil {
 		req = append(append(req, 1), ip...)
+	} else if ip6 := net.ParseIP(host); ip6 != nil {
+		req = append(append(req, 4), ip6.To16()...)
 	} else {
 		req = append(append(req, 3, byte(len(host))), host...)
 	}

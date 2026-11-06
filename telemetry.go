@@ -82,6 +82,18 @@ type tmStrategy struct {
 var tmStarted = time.Now()
 
 var (
+	tmSpeedMu sync.Mutex
+	tmSpeeds  = map[string]int{}
+)
+
+// tmSpeed запоминает замер скорости видео YouTube (strategy -> КБ/с)
+func tmSpeed(id string, kbps int) {
+	tmSpeedMu.Lock()
+	tmSpeeds[id] = kbps
+	tmSpeedMu.Unlock()
+}
+
+var (
 	tmMu       sync.Mutex
 	tmBaseline []tmSite
 	tmTested   []tmStrategy
@@ -249,6 +261,13 @@ func buildReport(trigger string) map[string]any {
 		}
 	}
 	// подробности для поиска ошибок
+	tmSpeedMu.Lock()
+	sp := map[string]int{}
+	for k, v := range tmSpeeds {
+		sp[k] = v
+	}
+	tmSpeedMu.Unlock()
+	rep["youtube_speed_kbps"] = sp
 	rep["winws"] = tmWinws()
 	rep["adapters"] = tmAdapters()
 	rep["probes"] = tmProbeDetails(res)

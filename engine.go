@@ -3,7 +3,9 @@
 package main
 
 import (
+	"dpibypass/speed"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -270,6 +272,37 @@ func selectConfig(svcs []Service, prev *Config) *Config {
 		}
 	}
 
+	// YouTube часто не блокируют, а замедляют: страница открывается, видео - нет
+	ytIn := false
+	if r, ok := base["YouTube"]; ok && r.OK {
+		if sp, err := speed.YouTube(speedClient(), 6*time.Second); err == nil {
+			tmSpeed("direct", sp.KBps)
+			info("Скорость видео YouTube без обхода: %d КБ/с (%s)", sp.KBps, sp.Method)
+			if sp.KBps < ytSlowKBps {
+				warn("YouTube замедлен - подбираю стратегию и для него")
+				for _, s := range svcs {
+					if s.Name == "YouTube" {
+						cands = append(cands, s)
+					}
+				}
+				var exp []string
+				for _, n := range cfg.Expected {
+					if n != "YouTube" {
+						exp = append(exp, n)
+					}
+				}
+				cfg.Expected = exp
+			}
+		} else {
+			info("Скорость видео YouTube не измерить: %v", err)
+		}
+	}
+	for _, s := range cands {
+		if s.Name == "YouTube" {
+			ytIn = true
+		}
+	}
+
 	if len(cands) == 0 {
 		title("Итог")
 		if len(cfg.Unfixable) == 0 {
@@ -284,7 +317,11 @@ func selectConfig(svcs []Service, prev *Config) *Config {
 
 	list := orderedStrategies()
 	title("Перебор стратегий (%d шт.)", len(list))
-	works := testStrategies(list, cands, true)
+	// для YouTube нужны все подходящие стратегии, чтобы выбрать самую быструю
+	works := testStrategies(list, cands, !ytIn)
+	if ytIn {
+		pickFastestYouTube(list, works)
+	}
 	groups, remaining := coverGroups(list, cands, works)
 	cfg.Groups = groups
 	if len(cfg.Groups) > 0 {
@@ -718,4 +755,60 @@ func tuneStandalone() {
 	tuneHosts(cfg, hosts)
 	cfg.Tuned = time.Now()
 	saveConfig(cfg)
+}
+
+const ytSlowKBps = 600 // медленнее - считаем YouTube замедленным
+
+func speedClient() *http.Client {
+	return &http.Client{Timeout: 20 * time.Second, Transport: &http.Transport{Proxy: nil,
+		DialContext: newDialer(5 * time.Second).DialContext}}
+}
+
+// pickFastestYouTube меряет скорость видео YouTube для стратегий, которые его открыли,
+// и оставляет YouTube только за самой быстрой (по ней он и попадёт в группу).
+func pickFastestYouTube(list []Strategy, works map[string]map[string]bool) {
+	var ok []Strategy
+	for _, st := range list {
+		if works[st.ID]["YouTube"] {
+			ok = append(ok, st)
+		}
+	}
+	if len(ok) > 4 {
+		ok = ok[:4]
+	}
+	if len(ok) < 2 {
+		return
+	}
+	title("Скорость видео YouTube (%d стратегии)", len(ok))
+	best, bestK := "", -1
+	for _, st := range ok {
+		if cancelled() {
+			fail("Отменено.")
+		}
+		setStatus("Measuring YouTube speed: " + st.ID)
+		w, err := startWinws(testArgs(st))
+		if err != nil {
+			continue
+		}
+		sp, err := speed.YouTube(speedClient(), 6*time.Second)
+		w.Stop()
+		if err != nil {
+			say("  %-42s %s", st.Name, col(cYellow, "не измерить"))
+			continue
+		}
+		tmSpeed(st.ID, sp.KBps)
+		say("  %-42s %d КБ/с", st.Name, sp.KBps)
+		if sp.KBps > bestK {
+			best, bestK = st.ID, sp.KBps
+		}
+	}
+	if best == "" {
+		return
+	}
+	good("Для YouTube выбрана самая быстрая: %s (%d КБ/с)", best, bestK)
+	for _, st := range ok {
+		if st.ID != best {
+			works[st.ID]["YouTube"] = false
+		}
+	}
 }

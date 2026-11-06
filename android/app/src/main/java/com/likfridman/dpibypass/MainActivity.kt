@@ -264,6 +264,16 @@ class MainActivity : Activity() {
                     }.start()
                     null
                 }
+                "blockQuic", "discordUdp", "tgMode" -> {
+                    when (cmd) {
+                        "blockQuic" -> Store.setBlockQuic(this@MainActivity, arg == "1")
+                        "discordUdp" -> Store.setDiscordUdp(this@MainActivity, arg == "1")
+                        else -> if (arg in listOf("auto", "ws", "direct")) Store.setTgMode(this@MainActivity, arg)
+                    }
+                    // перезапустить процессы обхода с новыми настройками (план тот же)
+                    if (Engine.running) Thread { Pool.plan?.let { Pool.start(this@MainActivity, it) } }.start()
+                    null
+                }
                 "tgFind" -> { TgProxy.discoverAsync(this@MainActivity, true) { toast(it) }; null }
                 "tgUse" -> {
                     if (arg.startsWith("tg://proxy?")) {

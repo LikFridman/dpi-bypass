@@ -1,0 +1,359 @@
+// Package router - локальный SOCKS5-маршрутизатор для Android: стоит между
+// VPN-туннелем (hev-socks5-tunnel) и byedpi и решает, куда отправить соединение:
+//   - TCP: по имени сайта (SNI/Host) - в копию byedpi со стратегией для этого сайта;
+//   - соединения приложения Telegram к его серверам - напрямую через byedpi или,
+//     если они не проходят, прозрачно через WebSocket к web.telegram.org;
+//   - UDP 443 (QUIC) - отбрасывается, чтобы YouTube и браузеры перешли на TCP,
+//     где работает обход;
+//   - UDP голоса Discord - через byedpi с фейковыми UDP-пакетами;
+//   - остальной UDP (DNS и т.п.) - напрямую.
+package router
+
+import (
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"dpibypass/tg"
+)
+
+// Group - копия byedpi со своей стратегией для списка доменов.
+type Group struct {
+	Upstream string   `json:"upstream"` // 127.0.0.1:1081
+	Domains  []string `json:"domains"`
+}
+
+// Config - настройки маршрутизатора (передаются JSON-файлом).
+type Config struct {
+	Listen       string   `json:"listen"`        // 127.0.0.1:1090
+	Default      string   `json:"default"`       // byedpi для всего остального
+	Groups       []Group  `json:"groups"`        // стратегии по сайтам
+	BlockQUIC    bool     `json:"block_quic"`    // отбрасывать UDP 443
+	UDPUpstream  string   `json:"udp_upstream"`  // byedpi для UDP голоса ("" - напрямую)
+	UDPPorts     [][2]int `json:"udp_ports"`     // диапазоны портов для UDPUpstream
+	TelegramMode string   `json:"telegram_mode"` // auto | ws | direct
+}
+
+// Stats - счётчики для отчётов
+type Stats struct {
+	TCP, UDP, QUICDropped, TGDirect, TGWS, Errors atomic.Int64
+	ByGroup                                       sync.Map // upstream -> *atomic.Int64
+}
+
+type Router struct {
+	cfg    Config
+	Log    func(format string, a ...any)
+	St     Stats
+	tgpx   *tg.TGProxy
+	ln     net.Listener
+	tgBad  sync.Map // "/24 сети" -> time.Time до которого шлём через WebSocket
+	tgFail sync.Map // -> *failCount
+}
+
+type failCount struct {
+	mu    sync.Mutex
+	n     int
+	since time.Time
+}
+
+func New(cfg Config) *Router {
+	if cfg.TelegramMode == "" {
+		cfg.TelegramMode = "auto"
+	}
+	r := &Router{cfg: cfg}
+	r.tgpx = &tg.TGProxy{Secret: make([]byte, 16), Log: func(f string, a ...any) { r.logf(f, a...) }}
+	return r
+}
+
+func (r *Router) logf(format string, a ...any) {
+	if r.Log != nil {
+		r.Log(format, a...)
+	}
+}
+
+func (r *Router) Listen() error {
+	ln, err := net.Listen("tcp", r.cfg.Listen)
+	if err != nil {
+		return err
+	}
+	r.ln = ln
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go r.handle(c)
+		}
+	}()
+	return nil
+}
+
+func (r *Router) Addr() string { return r.ln.Addr().String() }
+func (r *Router) Close()       { r.ln.Close() }
+
+// ---------- SOCKS5 сервер ----------
+
+func readAddr(rd io.Reader, atyp byte) (string, error) {
+	var host string
+	switch atyp {
+	case 1:
+		b := make([]byte, 4)
+		if _, err := io.ReadFull(rd, b); err != nil {
+			return "", err
+		}
+		host = net.IP(b).String()
+	case 4:
+		b := make([]byte, 16)
+		if _, err := io.ReadFull(rd, b); err != nil {
+			return "", err
+		}
+		host = net.IP(b).String()
+	case 3:
+		l := make([]byte, 1)
+		if _, err := io.ReadFull(rd, l); err != nil {
+			return "", err
+		}
+		b := make([]byte, l[0])
+		if _, err := io.ReadFull(rd, b); err != nil {
+			return "", err
+		}
+		host = string(b)
+	default:
+		return "", errors.New("SOCKS: неизвестный тип адреса")
+	}
+	pb := make([]byte, 2)
+	if _, err := io.ReadFull(rd, pb); err != nil {
+		return "", err
+	}
+	return net.JoinHostPort(host, strconv.Itoa(int(binary.BigEndian.Uint16(pb)))), nil
+}
+
+func (r *Router) handle(c net.Conn) {
+	defer c.Close()
+	c.SetDeadline(time.Now().Add(10 * time.Second))
+	h := make([]byte, 2)
+	if _, err := io.ReadFull(c, h); err != nil || h[0] != 5 {
+		return
+	}
+	if _, err := io.ReadFull(c, make([]byte, h[1])); err != nil {
+		return
+	}
+	c.Write([]byte{5, 0})
+	req := make([]byte, 4)
+	if _, err := io.ReadFull(c, req); err != nil {
+		return
+	}
+	target, err := readAddr(c, req[3])
+	if err != nil {
+		return
+	}
+	switch req[1] {
+	case 1:
+		r.handleConnect(c, target)
+	case 3:
+		r.handleUDP(c)
+	default:
+		c.Write([]byte{5, 7, 0, 1, 0, 0, 0, 0, 0, 0})
+	}
+}
+
+// ---------- TCP ----------
+
+func (r *Router) handleConnect(c net.Conn, target string) {
+	r.St.TCP.Add(1)
+	// отвечаем сразу, чтобы прочитать начало соединения и понять, что это за сайт
+	c.Write([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
+	host, _, _ := net.SplitHostPort(target)
+	ip := net.ParseIP(host)
+
+	first := make([]byte, 0, 4096)
+	buf := make([]byte, 16<<10)
+	deadline := time.Now().Add(1500 * time.Millisecond)
+	for len(first) < 64<<10 {
+		c.SetReadDeadline(deadline)
+		n, err := c.Read(buf)
+		first = append(first, buf[:n]...)
+		if err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				break // сервер говорит первым или клиент молчит - решаем без имени
+			}
+			if len(first) == 0 {
+				return
+			}
+			break
+		}
+		if ip != nil && tg.IsTelegramIP(ip) && len(first) >= 64 {
+			break
+		}
+		if _, more := sniffHost(first); !more {
+			break
+		}
+	}
+	c.SetDeadline(time.Time{})
+
+	// приложение Telegram к своим серверам
+	if ip != nil && tg.IsTelegramIP(ip) && len(first) >= 64 {
+		if r.telegram(c, target, ip, first) {
+			return
+		}
+	}
+
+	name, _ := sniffHost(first)
+	if name == "" && ip == nil {
+		name = strings.ToLower(host) // SOCKS с доменом
+	}
+	up := r.cfg.Default
+	for _, g := range r.cfg.Groups {
+		if name != "" && matchDomain(name, g.Domains) {
+			up = g.Upstream
+			break
+		}
+	}
+	r.countGroup(up)
+	r.pipeVia(c, up, target, first, nil)
+}
+
+func (r *Router) countGroup(up string) {
+	v, _ := r.St.ByGroup.LoadOrStore(up, new(atomic.Int64))
+	v.(*atomic.Int64).Add(1)
+}
+
+// pipeVia соединяет клиента с target через SOCKS5 upstream; done(получено байт) - по завершении
+func (r *Router) pipeVia(c net.Conn, up, target string, first []byte, done func(got int64, d time.Duration)) {
+	start := time.Now()
+	u, err := tg.SocksDial(up, target)
+	if err != nil {
+		r.St.Errors.Add(1)
+		if done != nil {
+			done(0, time.Since(start))
+		}
+		return
+	}
+	defer u.Close()
+	if len(first) > 0 {
+		if _, err := u.Write(first); err != nil {
+			return
+		}
+	}
+	var got atomic.Int64
+	ch := make(chan struct{}, 2)
+	go func() {
+		io.Copy(u, c)
+		if tc, ok := u.(*net.TCPConn); ok {
+			tc.CloseWrite()
+		}
+		ch <- struct{}{}
+	}()
+	go func() {
+		n, _ := io.Copy(c, u)
+		got.Store(n)
+		if tc, ok := c.(*net.TCPConn); ok {
+			tc.CloseWrite()
+		}
+		ch <- struct{}{}
+	}()
+	<-ch
+	// вторую сторону даём доделать, но не держим вечно
+	select {
+	case <-ch:
+	case <-time.After(30 * time.Second):
+	}
+	if done != nil {
+		done(got.Load(), time.Since(start))
+	}
+}
+
+// ---------- Telegram ----------
+
+func tgKey(ip net.IP) string {
+	if v4 := ip.To4(); v4 != nil {
+		return fmt.Sprintf("%d.%d.%d", v4[0], v4[1], v4[2])
+	}
+	return ip.String()
+}
+
+// telegram: true - соединение обслужено (через WebSocket или напрямую с учётом сбоев)
+func (r *Router) telegram(c net.Conn, target string, ip net.IP, first []byte) bool {
+	mode := r.cfg.TelegramMode
+	if mode == "direct" {
+		return false
+	}
+	key := tgKey(ip)
+	useWS := mode == "ws"
+	if v, ok := r.tgBad.Load(key); ok && time.Now().Before(v.(time.Time)) {
+		useWS = true
+	}
+	if useWS {
+		init := first[:64]
+		rest := first[64:]
+		cc := &prefixConn{Conn: c, prefix: rest}
+		dial := func(addr string) (net.Conn, error) { return tg.SocksDial(r.cfg.Default, addr) }
+		if r.tgpx.BridgeDirect(cc, init, ip, dial) {
+			r.St.TGWS.Add(1)
+			return true
+		}
+		// WebSocket не открылся - пробуем напрямую
+	}
+	r.St.TGDirect.Add(1)
+	r.pipeVia(c, r.cfg.Default, target, first, func(got int64, d time.Duration) {
+		if mode != "auto" {
+			return
+		}
+		// сервер Telegram ничего не ответил - похоже на блокировку
+		if got == 0 && d < 20*time.Second {
+			v, _ := r.tgFail.LoadOrStore(key, &failCount{})
+			fc := v.(*failCount)
+			fc.mu.Lock()
+			if time.Since(fc.since) > 2*time.Minute {
+				fc.n, fc.since = 0, time.Now()
+			}
+			fc.n++
+			n := fc.n
+			fc.mu.Unlock()
+			if n >= 2 {
+				if _, was := r.tgBad.Load(key); !was {
+					r.logf("Telegram: серверы %s.x не отвечают напрямую - перевожу на WebSocket", key)
+				}
+				r.tgBad.Store(key, time.Now().Add(15*time.Minute))
+			}
+		}
+	})
+	return true
+}
+
+// prefixConn - соединение, у которого начало уже прочитано
+type prefixConn struct {
+	net.Conn
+	prefix []byte
+}
+
+func (p *prefixConn) Read(b []byte) (int, error) {
+	if len(p.prefix) > 0 {
+		n := copy(b, p.prefix)
+		p.prefix = p.prefix[n:]
+		return n, nil
+	}
+	return p.Conn.Read(b)
+}
+
+// ---------- UDP ----------
+
+func (r *Router) udpViaUpstream(port int) bool {
+	if r.cfg.UDPUpstream == "" {
+		return false
+	}
+	for _, rg := range r.cfg.UDPPorts {
+		if port >= rg[0] && port <= rg[1] {
+			return true
+		}
+	}
+	return false
+}

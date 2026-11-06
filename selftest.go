@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"dpibypass/speed"
 	"dpibypass/tg"
 	"encoding/json"
 	"fmt"
@@ -105,6 +106,12 @@ func selftest() int {
 	}
 	if len(found) == 0 {
 		say("[!] рабочих публичных прокси не найдено (не критично), кандидатов %d", len(cands))
+	}
+	// замер скорости видео YouTube (API плеера + googlevideo) - не критично
+	if sp, err := speed.YouTube(speedClient(), 6*time.Second); err == nil {
+		say("[+] скорость видео YouTube: %d КБ/с, %s, %s", sp.KBps, sp.Method, sp.Host)
+	} else {
+		say("[!] скорость YouTube не измерить: %v (не критично)", err)
 	}
 	if b, err := json.Marshal(buildReport("test")); err == nil {
 		check("отчёт собирается", len(b) > 500, fmt.Sprintf("%d байт", len(b)))

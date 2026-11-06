@@ -165,7 +165,7 @@ jobs:
 
       - name: Прокси Telegram для Android (Go)
         run: |
-          go test ./tg
+          go test ./tg ./router
           for pair in arm64-v8a:arm64 armeabi-v7a:arm x86_64:amd64; do
             abi="${pair%%:*}"; arch="${pair##*:}"
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch GOARM=7 go build -trimpath -ldflags="-s -w" \

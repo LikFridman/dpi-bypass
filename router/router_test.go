@@ -1,0 +1,172 @@
+package router
+
+import (
+	"bytes"
+	"crypto/tls"
+	"encoding/binary"
+	"io"
+	"net"
+	"strconv"
+	"testing"
+	"time"
+)
+
+// fakeSocks - поддельный byedpi: SOCKS5, запоминает адрес и первые байты, отвечает "ok"
+func fakeSocks(t *testing.T, got chan<- string) net.Listener {
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				g := make([]byte, 3)
+				io.ReadFull(c, g)
+				c.Write([]byte{5, 0})
+				h := make([]byte, 4)
+				io.ReadFull(c, h)
+				target, _ := readAddr(c, h[3])
+				c.Write([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
+				b := make([]byte, 4096)
+				n, _ := c.Read(b)
+				got <- target + "|" + strconv.Itoa(n)
+				c.Write([]byte("ok"))
+			}(c)
+		}
+	}()
+	return ln
+}
+
+func socksConnect(t *testing.T, router, target string) net.Conn {
+	c, err := net.Dial("tcp", router)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Write([]byte{5, 1, 0})
+	io.ReadFull(c, make([]byte, 2))
+	host, port, _ := net.SplitHostPort(target)
+	p, _ := strconv.Atoi(port)
+	req := append([]byte{5, 1, 0, 1}, net.ParseIP(host).To4()...)
+	req = append(req, byte(p>>8), byte(p))
+	c.Write(req)
+	io.ReadFull(c, make([]byte, 10))
+	return c
+}
+
+func clientHello(sni string) []byte {
+	a, b := net.Pipe()
+	go tls.Client(a, &tls.Config{ServerName: sni, InsecureSkipVerify: true}).Handshake()
+	buf := make([]byte, 4096)
+	n, _ := b.Read(buf)
+	a.Close()
+	return buf[:n]
+}
+
+func TestSNIRouting(t *testing.T) {
+	gotDef, gotYT := make(chan string, 4), make(chan string, 4)
+	def, yt := fakeSocks(t, gotDef), fakeSocks(t, gotYT)
+	defer def.Close()
+	defer yt.Close()
+	r := New(Config{Listen: "127.0.0.1:0", Default: def.Addr().String(),
+		Groups: []Group{{Upstream: yt.Addr().String(), Domains: []string{"youtube.com", "googlevideo.com"}}}})
+	if err := r.Listen(); err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	if h, _ := sniffHost(clientHello("rr3---sn-abc.googlevideo.com")); h != "rr3---sn-abc.googlevideo.com" {
+		t.Fatalf("SNI: %q", h)
+	}
+
+	c := socksConnect(t, r.Addr(), "142.250.1.1:443")
+	c.Write(clientHello("www.youtube.com"))
+	select {
+	case g := <-gotYT:
+		if g[:len("142.250.1.1:443")] != "142.250.1.1:443" {
+			t.Fatalf("адрес %s", g)
+		}
+	case <-gotDef:
+		t.Fatal("YouTube ушёл не в свою группу")
+	case <-time.After(3 * time.Second):
+		t.Fatal("таймаут")
+	}
+	c.Close()
+
+	c = socksConnect(t, r.Addr(), "1.1.1.1:443")
+	c.Write(clientHello("example.org"))
+	select {
+	case <-gotDef:
+	case <-gotYT:
+		t.Fatal("чужой сайт ушёл в группу YouTube")
+	case <-time.After(3 * time.Second):
+		t.Fatal("таймаут")
+	}
+	resp := make([]byte, 2)
+	c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := io.ReadFull(c, resp); err != nil || string(resp) != "ok" {
+		t.Fatalf("ответ %q %v", resp, err)
+	}
+	c.Close()
+
+	// HTTP: Host
+	c = socksConnect(t, r.Addr(), "142.250.1.2:80")
+	c.Write([]byte("GET / HTTP/1.1\r\nHost: m.youtube.com\r\n\r\n"))
+	select {
+	case <-gotYT:
+	case <-time.After(3 * time.Second):
+		t.Fatal("HTTP Host не распознан")
+	}
+	c.Close()
+}
+
+func TestUDP(t *testing.T) {
+	echo, _ := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	defer echo.Close()
+	go func() {
+		b := make([]byte, 2048)
+		for {
+			n, a, err := echo.ReadFromUDP(b)
+			if err != nil {
+				return
+			}
+			echo.WriteToUDP(b[:n], a)
+		}
+	}()
+	r := New(Config{Listen: "127.0.0.1:0", Default: "127.0.0.1:1", BlockQUIC: true})
+	r.Listen()
+	defer r.Close()
+
+	c, _ := net.Dial("tcp", r.Addr())
+	defer c.Close()
+	c.Write([]byte{5, 1, 0})
+	io.ReadFull(c, make([]byte, 2))
+	c.Write([]byte{5, 3, 0, 1, 0, 0, 0, 0, 0, 0})
+	rep := make([]byte, 10)
+	io.ReadFull(c, rep)
+	relay := &net.UDPAddr{IP: net.IP(rep[4:8]), Port: int(binary.BigEndian.Uint16(rep[8:10]))}
+	u, _ := net.DialUDP("udp", nil, relay)
+	defer u.Close()
+
+	// QUIC - отбрасывается
+	q := append([]byte{0, 0, 0, 1, 8, 8, 8, 8, 1, 187}, []byte("quic")...)
+	u.Write(q)
+	// обычный UDP - напрямую, эхо возвращается с заголовком
+	ep := echo.LocalAddr().(*net.UDPAddr).Port
+	pkt := append([]byte{0, 0, 0, 1, 127, 0, 0, 1, byte(ep >> 8), byte(ep)}, []byte("hello")...)
+	u.Write(pkt)
+	u.SetReadDeadline(time.Now().Add(3 * time.Second))
+	b := make([]byte, 2048)
+	n, err := u.Read(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(b[:n], pkt) {
+		t.Fatalf("эхо %x", b[:n])
+	}
+	time.Sleep(100 * time.Millisecond)
+	if r.St.QUICDropped.Load() != 1 {
+		t.Fatalf("QUIC не отброшен: %d", r.St.QUICDropped.Load())
+	}
+}

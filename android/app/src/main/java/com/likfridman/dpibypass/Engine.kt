@@ -23,8 +23,8 @@ import javax.net.ssl.SSLException
 /** Стратегия обхода = параметры byedpi (ciadpi). */
 data class Strategy(val id: String, val name: String, val args: List<String>)
 
-/** Сайт для проверки. */
-data class Site(val name: String, val host: String)
+/** Сайт: что проверять и какие домены к нему относятся (для маршрутизации по стратегиям). */
+data class Site(val name: String, val host: String, val domains: List<String> = emptyList())
 
 /** Результат проверки сайта. */
 data class Probe(val ok: Boolean, val kind: String, val reason: String, val ms: Int = 0) {
@@ -38,33 +38,68 @@ data class Probe(val ok: Boolean, val kind: String, val reason: String, val ms: 
  * так видно настоящее состояние блокировок.
  */
 object Engine {
-    const val PORT = 1080
+    const val PORT = 1080        // byedpi со стратегией по умолчанию
+    const val GROUP_PORT = 1081  // 1081, 1082... - стратегии для отдельных сайтов
+    const val UDP_PORT = 1089    // byedpi для UDP (голос Discord)
+    const val ROUTER_PORT = 1090 // маршрутизатор: сюда идёт весь трафик туннеля
     const val TEST_PORT = 10801
 
+    /**
+     * Стратегии byedpi. Сначала - без подмены TTL: у мобильных операторов
+     * (Yota, МегаФон, МТС) фейковые пакеты с малым TTL часто не доходят до DPI.
+     */
     val strategies = listOf(
         Strategy("b1", "disorder 1 + tlsrec по SNI", listOf("--disorder", "1", "--tlsrec", "1+s")),
-        Strategy("b2", "fake + ttl 8, подмена SNI", listOf("--fake", "-1", "--ttl", "8", "--fake-sni", "www.google.com")),
         Strategy("b3", "split + disorder по SNI", listOf("--split", "1", "--disorder", "3+s", "--mod-http", "h,d", "--tlsrec", "1+s")),
         Strategy("b4", "disorder + авто при сбросе", listOf("--disorder", "1", "--auto", "torst", "--tlsrec", "1+s")),
-        Strategy("b5", "fake 1 + ttl 6 + tlsrec", listOf("--fake", "1", "--ttl", "6", "--tlsrec", "1+s")),
         Strategy("b6", "oob 1 + tlsrec", listOf("--oob", "1", "--tlsrec", "1+s")),
-        Strategy("b7", "split + disorder + fake, случайный фейк", listOf("--split", "1+s", "--disorder", "3+s", "--fake", "-1", "--ttl", "8", "--fake-tls-mod", "rand")),
         Strategy("b8", "disoob 1 + tlsrec 3", listOf("--disoob", "1", "--tlsrec", "3+s")),
-        Strategy("b9", "fake + ttl 5 + tlsrec", listOf("--fake", "-1", "--ttl", "5", "--tlsrec", "1+s")),
         Strategy("b10", "tlsrec в середине SNI + split", listOf("--split", "2", "--tlsrec", "0+sm")),
-        Strategy("b11", "disorder 3 + fake ttl 4", listOf("--disorder", "3", "--fake", "-1", "--ttl", "4")),
         Strategy("b12", "split по SNI + oob", listOf("--split", "1+s", "--oob", "3+s", "--tlsrec", "1+s")),
+        Strategy("b13", "split 1 + tlsrec", listOf("--split", "1", "--tlsrec", "1+s")),
+        Strategy("b14", "disorder по SNI + tlsrec", listOf("--disorder", "1+s", "--tlsrec", "1+s")),
+        Strategy("b15", "split 2+s + disorder 4+s", listOf("--split", "2+s", "--disorder", "4+s")),
+        Strategy("b16", "oob по SNI + tlsrec", listOf("--oob", "1+s", "--tlsrec", "1+s")),
+        Strategy("b17", "disoob по SNI", listOf("--disoob", "1+s")),
+        Strategy("b18", "disorder 1 + split по SNI + tlsrec в середине", listOf("--disorder", "1", "--split", "1+s", "--tlsrec", "0+sm")),
+        Strategy("b20", "disorder 1 + tlsrec + mod-http", listOf("--disorder", "1", "--tlsrec", "1+s", "--mod-http", "h,d")),
+        Strategy("b21", "split 1 + oob 2+s", listOf("--split", "1", "--oob", "2+s")),
+        Strategy("b22", "disorder 2 + авто disorder по SNI", listOf("--disorder", "2", "--tlsrec", "1+s", "--auto", "torst", "--disorder", "1+s")),
+        Strategy("b27", "oob 1 + disorder 3+s", listOf("--oob", "1", "--disorder", "3+s")),
+        Strategy("b28", "split 3 + disorder 7", listOf("--split", "3", "--disorder", "7")),
+        Strategy("b30", "tlsrec 3+s + split 1", listOf("--tlsrec", "3+s", "--split", "1")),
+        Strategy("b32", "split по SNI + авто при ошибке TLS", listOf("--split", "1+s", "--auto", "ssl_err", "--disorder", "1")),
+        Strategy("b33", "disoob 1 + split 3+s", listOf("--disoob", "1", "--split", "3+s")),
+        Strategy("b34", "oob 2 + tlsrec + mod-http", listOf("--oob", "2", "--tlsrec", "1+s", "--mod-http", "h,d,r")),
+        Strategy("b35", "disorder 5 + tlsrec 2+s", listOf("--disorder", "5", "--tlsrec", "2+s")),
+        Strategy("b39", "двойной split", listOf("--split", "2", "--split", "1+s")),
+        Strategy("b40", "oob + disorder + tlsrec по SNI", listOf("--oob", "1+s", "--disorder", "3+s", "--tlsrec", "1+s")),
+        // с фейковыми пакетами (TTL)
+        Strategy("b2", "fake + ttl 8, подмена SNI", listOf("--fake", "-1", "--ttl", "8", "--fake-sni", "www.google.com")),
+        Strategy("b5", "fake 1 + ttl 6 + tlsrec", listOf("--fake", "1", "--ttl", "6", "--tlsrec", "1+s")),
+        Strategy("b7", "split + disorder + fake, случайный фейк", listOf("--split", "1+s", "--disorder", "3+s", "--fake", "-1", "--ttl", "8", "--fake-tls-mod", "rand")),
+        Strategy("b9", "fake + ttl 5 + tlsrec", listOf("--fake", "-1", "--ttl", "5", "--tlsrec", "1+s")),
+        Strategy("b11", "disorder 3 + fake ttl 4", listOf("--disorder", "3", "--fake", "-1", "--ttl", "4")),
+        Strategy("b23", "fake + ttl 3 + tlsrec", listOf("--fake", "-1", "--ttl", "3", "--tlsrec", "1+s")),
+        Strategy("b24", "fake + ttl 10, случайный фейк", listOf("--fake", "-1", "--ttl", "10", "--fake-tls-mod", "rand")),
+        Strategy("b25", "fake по SNI + ttl 6 + split", listOf("--fake", "1+s", "--ttl", "6", "--split", "1")),
+        Strategy("b26", "disorder 1 + fake ttl 6, SNI yandex", listOf("--disorder", "1", "--fake", "-1", "--ttl", "6", "--fake-sni", "ya.ru")),
+        Strategy("b31", "disorder по SNI + авто fake", listOf("--disorder", "1+s", "--auto", "torst", "--fake", "-1", "--ttl", "8")),
+        Strategy("b37", "fake ttl 7 + disorder по SNI", listOf("--fake", "-1", "--ttl", "7", "--fake-sni", "www.google.com", "--disorder", "1+s")),
     )
 
+    /** Отдельная копия byedpi для UDP (голос Discord): фейковые UDP-пакеты перед настоящими. */
+    val udpArgs = listOf("--udp-fake", "6")
+
     val sites = listOf(
-        Site("YouTube", "www.youtube.com"),
-        Site("Discord", "discord.com"),
-        Site("Instagram", "www.instagram.com"),
-        Site("X/Twitter", "x.com"),
-        Site("Rutracker", "rutracker.org"),
-        Site("LinkedIn", "www.linkedin.com"),
-        Site("Roblox", "www.roblox.com"),
-        Site("Telegram", "web.telegram.org"),
+        Site("YouTube", "www.youtube.com", listOf("youtube.com", "googlevideo.com", "ytimg.com", "ggpht.com", "youtu.be", "youtubei.googleapis.com", "youtube-nocookie.com", "yt3.googleusercontent.com", "jnn-pa.googleapis.com")),
+        Site("Discord", "discord.com", listOf("discord.com", "discord.gg", "discordapp.com", "discordapp.net", "discord.media", "discordcdn.com", "discord.dev", "discord.app", "discordstatus.com", "dis.gd")),
+        Site("Instagram", "www.instagram.com", listOf("instagram.com", "cdninstagram.com", "igcdn.com")),
+        Site("X/Twitter", "x.com", listOf("x.com", "twitter.com", "twimg.com", "t.co")),
+        Site("Rutracker", "rutracker.org", listOf("rutracker.org", "rutracker.cc", "rutracker.net")),
+        Site("LinkedIn", "www.linkedin.com", listOf("linkedin.com", "licdn.com")),
+        Site("Roblox", "www.roblox.com", listOf("roblox.com", "rbxcdn.com", "rbx.com", "robloxlabs.com")),
+        Site("Telegram", "web.telegram.org", listOf("telegram.org", "t.me", "telegram.me", "telesco.pe", "tdesktop.com", "cdn-telegram.org")),
     )
 
     // ---------- журнал и состояние для окна ----------
@@ -101,8 +136,10 @@ object Engine {
 
     fun binary(ctx: Context) = File(ctx.applicationInfo.nativeLibraryDir, "libciadpi.so")
 
-    fun startProxy(ctx: Context, s: Strategy, port: Int): Process {
-        val cmd = listOf(binary(ctx).absolutePath, "-i", "127.0.0.1", "-p", port.toString()) + s.args
+    fun startProxy(ctx: Context, s: Strategy, port: Int): Process = startProxyArgs(ctx, s.args, port)
+
+    fun startProxyArgs(ctx: Context, args: List<String>, port: Int): Process {
+        val cmd = listOf(binary(ctx).absolutePath, "-i", "127.0.0.1", "-p", port.toString()) + args
         val p = ProcessBuilder(cmd).redirectErrorStream(true).start()
         Thread {
             try {
@@ -223,51 +260,137 @@ object Engine {
 
     // ---------- подбор стратегии ----------
 
-    /** Перебирает стратегии; возвращает лучшую и сохраняет её. */
-    fun select(ctx: Context): Strategy {
+    /** Скорость видео YouTube через byedpi на порту port (null - без обхода), КБ/с; -1 - не вышло. */
+    fun speedTest(port: Int?): Int {
+        val bin = File(nativeDir, "libtgproxy.so")
+        if (nativeDir.isEmpty() || !bin.exists()) return -1
+        val cmd = mutableListOf(bin.absolutePath, "-speed")
+        if (port != null) cmd += listOf("-socks", "127.0.0.1:$port")
+        return runCatching {
+            val p = ProcessBuilder(cmd).redirectErrorStream(true).start()
+            val out = p.inputStream.bufferedReader().readText()
+            p.waitFor(30, TimeUnit.SECONDS)
+            val line = out.lines().lastOrNull { it.startsWith("SPEED ") } ?: return@runCatching -1
+            if (line.startsWith("SPEED FAIL")) { log("Скорость YouTube: ${line.removePrefix("SPEED FAIL ").take(120)}"); return@runCatching -1 }
+            val j = JSONObject(line.removePrefix("SPEED "))
+            lastSpeedMethod = j.optString("method")
+            j.optInt("kbps", -1)
+        }.getOrDefault(-1)
+    }
+
+    @Volatile var lastSpeedMethod = ""
+    /** Результаты последнего подбора - для отчёта */
+    @Volatile var lastSpeeds = JSONObject()
+
+    /** YouTube считается замедленным, если видео грузится медленнее этого (КБ/с) */
+    private const val YT_SLOW_KBPS = 600
+
+    /**
+     * Подбор: проверка без обхода, перебор стратегий по каждому сайту, замер скорости
+     * видео YouTube для подходящих стратегий, затем план: стратегия по умолчанию +
+     * отдельные стратегии для сайтов, которым нужна другая.
+     */
+    fun select(ctx: Context): Plan {
         log("== Проверка без обхода ==")
         status = "Checking sites…"
         val base = probeAll(null)
         sites.forEach { s -> base[s.name]?.let { log(probeLine(s.name, it)) } }
         Report.setBaseline(base)
-        val cands = sites.filter { base[it.name]?.kind == "dpi" }
+        val cands = sites.filter { base[it.name]?.kind == "dpi" }.toMutableList()
         val ipBlocked = sites.filter { base[it.name]?.kind == "ip" || base[it.name]?.kind == "dns" }.map { it.name }
         Store.setUnfixable(ctx, ipBlocked)
-        if (cands.isEmpty()) {
-            log("DPI-блокировок не найдено - включаю стратегию по умолчанию.")
-            val s = strategies.first()
-            Store.setStrategy(ctx, s.id)
-            return s
+        val speeds = JSONObject()
+        // YouTube часто не блокируют, а замедляют: страница открывается, видео - нет
+        val yt = sites.first { it.name == "YouTube" }
+        if (base[yt.name]?.ok == true) {
+            status = "Measuring YouTube speed…"
+            val sp = speedTest(null)
+            speeds.put("direct", sp)
+            log("Скорость видео YouTube без обхода: ${if (sp >= 0) "$sp КБ/с" else "не измерить"} ($lastSpeedMethod)")
+            if (sp in 0 until YT_SLOW_KBPS) {
+                log("YouTube замедлен - подбираю стратегию и для него")
+                cands.add(yt)
+            }
         }
-        log("== Перебор стратегий (${strategies.size}) ==")
-        var best = strategies.first()
-        var bestN = -1
-        progTotal = strategies.size
-        for ((i, s) in orderedStrategies(ctx).withIndex()) {
+        if (cands.isEmpty()) {
+            log("Блокировок DPI не найдено - включаю стратегию по умолчанию.")
+            val pl = Plan(strategies.first().id, emptyList())
+            Store.setPlan(ctx, pl)
+            lastSpeeds = speeds
+            return pl
+        }
+        val order = orderedStrategies(ctx)
+        log("== Перебор стратегий (до ${order.size}) для: ${cands.joinToString { it.name }} ==")
+        val matrix = LinkedHashMap<String, Map<String, Probe>>()
+        progTotal = order.size
+        for ((i, s) in order.withIndex()) {
             if (cancel) break
             progCur = i + 1
-            status = "Testing strategies: ${i + 1}/${strategies.size}"
+            status = "Testing strategies: ${i + 1}/${order.size}"
             val p = runCatching { startProxy(ctx, s, TEST_PORT) }.getOrNull()
             if (p == null || !p.isAlive) {
                 Report.recordStrategy(s, cands, null)
-                log("[${i + 1}/${strategies.size}] ${s.name}: не запустилась")
+                log("[${i + 1}] ${s.name}: не запустилась")
                 stopProxy(p)
                 continue
             }
             val r = probeAll(TEST_PORT, cands)
             stopProxy(p)
-            val n = cands.count { r[it.name]?.ok == true }
+            matrix[s.id] = r
             Report.recordStrategy(s, cands, r)
-            log("[${i + 1}/${strategies.size}] ${s.name}: открыто $n из ${cands.size}")
-            if (n > bestN) { best = s; bestN = n }
-            if (n == cands.size) break
+            log("[${i + 1}] ${s.name}: " + cands.joinToString("  ") { (if (r[it.name]?.ok == true) "+" else "-") + it.name })
+            val covered = cands.all { c -> matrix.values.any { it[c.name]?.ok == true } }
+            val ytCands = matrix.values.count { it[yt.name]?.ok == true }
+            // достаточно: всё покрыто, проверено не меньше 10, и для YouTube есть из чего выбрать
+            if (covered && i + 1 >= 10 && (yt !in cands || ytCands >= 3)) break
         }
         progTotal = 0
-        Store.setStrategy(ctx, best.id)
-        Store.recordWorked(ctx, best.id)
-        log("Итог: ${best.name} (открыто $bestN из ${cands.size})")
+
+        val assign = LinkedHashMap<String, String>() // сайт -> стратегия
+        var ytKBps = 0
+        if (yt in cands) {
+            val ytOk = matrix.entries.filter { it.value[yt.name]?.ok == true }
+                .sortedBy { it.value[yt.name]?.ms ?: 9999 }.take(4)
+            var best = ""
+            for ((i, e) in ytOk.withIndex()) {
+                if (cancel) break
+                status = "Measuring YouTube speed: ${i + 1}/${ytOk.size}"
+                val s = strategyById(e.key) ?: continue
+                val p = runCatching { startProxy(ctx, s, TEST_PORT) }.getOrNull()
+                val sp = speedTest(TEST_PORT)
+                stopProxy(p)
+                speeds.put(s.id, sp)
+                log("Скорость видео YouTube, ${s.name}: ${if (sp >= 0) "$sp КБ/с" else "не измерить"}")
+                if (sp > ytKBps) { ytKBps = sp; best = s.id }
+            }
+            if (best.isEmpty()) best = ytOk.firstOrNull()?.key ?: ""
+            if (best.isNotEmpty()) assign[yt.name] = best
+        }
+        // остальные сайты - жадно минимальным числом стратегий
+        val remaining = cands.filter { it.name !in assign }.map { it.name }.toMutableSet()
+        while (remaining.isNotEmpty()) {
+            val used = assign.values.toSet()
+            val best = matrix.entries.maxByOrNull { e ->
+                remaining.count { e.value[it]?.ok == true } * 10 + (if (e.key in used) 5 else 0)
+            } ?: break
+            val got = remaining.filter { best.value[it]?.ok == true }
+            if (got.isEmpty()) break
+            got.forEach { assign[it] = best.key; remaining.remove(it) }
+        }
+        if (remaining.isNotEmpty()) log("Не помогла ни одна стратегия: ${remaining.joinToString()}")
+        // по умолчанию - стратегия, которая нужна большему числу сайтов
+        val counts = assign.values.groupingBy { it }.eachCount()
+        val def = counts.maxByOrNull { it.value }?.key ?: matrix.entries.maxByOrNull { e -> cands.count { e.value[it.name]?.ok == true } }?.key ?: strategies.first().id
+        val groups = assign.entries.filter { it.value != def }.groupBy({ it.value }, { it.key })
+            .map { (st, ss) -> PlanGroup(st, ss) }
+        val pl = Plan(def, groups, ytKBps)
+        Store.setPlan(ctx, pl)
+        assign.values.toSet().forEach { Store.recordWorked(ctx, it) }
+        lastSpeeds = speeds
+        log("Итог: по умолчанию ${strategyById(def)?.name}" + groups.joinToString("") { "; ${it.sites.joinToString()} → ${strategyById(it.strategy)?.name}" } +
+            (if (ytKBps > 0) "; видео YouTube $ytKBps КБ/с" else ""))
         if (ipBlocked.isNotEmpty()) log("Заблокированы по IP (нужен VPN): ${ipBlocked.joinToString()}")
-        return best
+        return pl
     }
 
     /** Сначала стратегии, которые уже срабатывали на этом телефоне. */
@@ -287,8 +410,9 @@ object Engine {
         o.put("starting", starting)
         o.put("busy", busy)
         o.put("status", status)
-        val st = strategyById(Store.strategy(ctx))
-        o.put("strategy", st?.name ?: "")
+        val plan = Pool.plan ?: Store.plan(ctx)
+        val st = strategyById(plan?.default ?: Store.strategy(ctx))
+        o.put("strategy", (st?.name ?: "") + (if ((plan?.groups?.size ?: 0) > 0) " + ${plan!!.groups.size} per-site" else ""))
         o.put("boot", Store.boot(ctx))
         val unfix = Store.unfixable(ctx)
         val rows = JSONArray()
@@ -303,10 +427,10 @@ object Engine {
                     total++
                     if (p.ok) ok++
                     r.put("kind", if (p.ok) "ok" else "bad").put("label", p.label)
-                    r.put("strategy", st?.id ?: "")
+                    r.put("strategy", plan?.strategyFor(s.name) ?: st?.id ?: "")
                 }
-                running -> r.put("kind", "idle").put("label", "checking…").put("strategy", st?.id ?: "")
-                else -> r.put("kind", "idle").put("label", "off").put("strategy", st?.id ?: "—")
+                running -> r.put("kind", "idle").put("label", "checking…").put("strategy", plan?.strategyFor(s.name) ?: "")
+                else -> r.put("kind", "idle").put("label", "off").put("strategy", plan?.strategyFor(s.name) ?: "—")
             }
             rows.put(r)
         }
@@ -322,6 +446,10 @@ object Engine {
         o.put("tgProxies", JSONArray(Store.tgProxies(ctx)))
         o.put("tgWorker", Store.tgWorker(ctx))
         o.put("needConsent", !Store.consentOK(ctx))
+        o.put("blockQuic", Store.blockQuic(ctx))
+        o.put("discordUdp", Store.discordUdp(ctx))
+        o.put("tgMode", Store.tgMode(ctx))
+        o.put("ytKBps", plan?.ytKBps ?: 0)
         o.put("tgFound", TgProxy.found)
         o.put("tgSearching", TgProxy.isSearching)
         o.put("tgFoundAt", if (TgProxy.foundAt > 0) ago(TgProxy.foundAt) else "")
