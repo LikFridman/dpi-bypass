@@ -69,6 +69,7 @@ type uiState struct {
 	Agreement   string      `json:"agreement,omitempty"`
 	Autostart   bool        `json:"autostart"`
 	Tray        bool        `json:"tray"`
+	DoH         bool        `json:"doh"`
 	Update      string      `json:"update"`
 	Dir         string      `json:"dir"`
 	Missing     []string    `json:"missing"`
@@ -367,7 +368,7 @@ func loadConfigCached() *Config {
 func buildUIState() uiState {
 	st := uiState{
 		Version: version, Running: engRunning.Load(), Busy: busy.Load(),
-		Mode: settings.LastMode, Autostart: autostartCache.Load(), Tray: settings.Tray,
+		Mode: settings.LastMode, Autostart: autostartCache.Load(), Tray: settings.Tray, DoH: !settings.NoDoH,
 		Dir: baseDir, Missing: missingZapretFiles(), TgLink: tgCurrentLink, TgStats: tgStatusLine(),
 		TgProxies:   tgUpstreamNames(),
 		NeedConsent: !consentOK(),
@@ -668,6 +669,17 @@ func webCall(cmd, arg string) (any, error) {
 	case "tray":
 		settings.Tray = arg == "1"
 		saveSettings()
+	case "doh":
+		settings.NoDoH = arg != "1"
+		saveSettings()
+		go func() {
+			if settings.NoDoH {
+				dohStop()
+				info("Зашифрованный DNS выключен - снова DNS провайдера")
+			} else if engRunning.Load() {
+				dohStart()
+			}
+		}()
 	case "bgGet":
 		return bgInfo(), nil
 	case "bgSet":
@@ -845,6 +857,7 @@ func webQuit() {
 	go func() {
 		stopEngine()
 		stopActive()
+		dohStop()
 		wv.Dispatch(func() {
 			removeTrayIcon()
 			wv.Terminate()

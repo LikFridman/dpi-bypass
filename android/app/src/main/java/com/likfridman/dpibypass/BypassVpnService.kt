@@ -88,6 +88,7 @@ class BypassVpnService : VpnService() {
     private fun run(reselect: Boolean) {
         Report.installCrashHandler(this)
         Engine.nativeDir = applicationInfo.nativeLibraryDir
+        Engine.useDoH = Store.doh(this)
         Report.startedAt = System.currentTimeMillis()
         Engine.starting = true
         Engine.cancel = false

@@ -21,6 +21,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"context"
+	"dpibypass/doh"
 	"dpibypass/tg"
 )
 
@@ -39,11 +41,13 @@ type Config struct {
 	UDPUpstream  string   `json:"udp_upstream"`  // byedpi для UDP голоса ("" - напрямую)
 	UDPPorts     [][2]int `json:"udp_ports"`     // диапазоны портов для UDPUpstream
 	TelegramMode string   `json:"telegram_mode"` // auto | ws | direct
+	DoH          bool     `json:"doh"`           // DNS (UDP 53) из туннеля - через зашифрованный DNS
 }
 
 // Stats - счётчики для отчётов
 type Stats struct {
 	TCP, UDP, QUICDropped, TGDirect, TGWS, Errors atomic.Int64
+	DNS, DNSFail                                  atomic.Int64
 	ByGroup                                       sync.Map // upstream -> *atomic.Int64
 }
 
@@ -55,6 +59,7 @@ type Router struct {
 	ln     net.Listener
 	tgBad  sync.Map // "/24 сети" -> time.Time до которого шлём через WebSocket
 	tgFail sync.Map // -> *failCount
+	dns    *doh.Resolver
 }
 
 type failCount struct {
@@ -68,8 +73,28 @@ func New(cfg Config) *Router {
 		cfg.TelegramMode = "auto"
 	}
 	r := &Router{cfg: cfg}
+	if cfg.DoH {
+		// DoH напрямую; если провайдер его режет - через byedpi по умолчанию
+		var fb doh.Dial
+		if cfg.Default != "" {
+			fb = func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return tg.SocksDial(cfg.Default, addr)
+			}
+		}
+		r.dns = doh.New(nil, fb)
+	}
 	r.tgpx = &tg.TGProxy{Secret: make([]byte, 16), Log: func(f string, a ...any) { r.logf(f, a...) }}
 	return r
+}
+
+// DNSStats - счётчики зашифрованного DNS (nil, если выключен)
+func (r *Router) DNSStats() map[string]any {
+	if r.dns == nil {
+		return nil
+	}
+	r.dns.Stats.Lock()
+	defer r.dns.Stats.Unlock()
+	return map[string]any{"queries": r.dns.Stats.Queries, "cache_hits": r.dns.Stats.CacheHits, "failures": r.dns.Stats.Failures, "last_error": r.dns.Stats.LastError}
 }
 
 func (r *Router) logf(format string, a ...any) {

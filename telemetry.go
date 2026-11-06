@@ -301,6 +301,7 @@ func buildReport(trigger string) map[string]any {
 		tgInfo["routes"] = tgProxy.RouteStats()
 	}
 	rep["telegram"] = tgInfo
+	rep["dns"] = dohStats()
 	if pr, at := lastPing(); pr != nil {
 		rep["ping_all"] = map[string]any{"at": at.Format(time.RFC3339), "sites": pr}
 	}

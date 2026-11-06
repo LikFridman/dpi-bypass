@@ -66,7 +66,7 @@ object UiTest {
         click("[data-a=tgTest]", "проверка Telegram"); Thread.sleep(10000)
         alive("Telegram")
         click(".tab[data-p=set]", "вкладка Settings"); Thread.sleep(600)
-        for (t in listOf("#togQuic", "#togUdp")) { click(t, "переключатель $t"); Thread.sleep(4000); click(t, "переключатель $t обратно"); Thread.sleep(4000) }
+        for (t in listOf("#togDoh", "#togQuic", "#togUdp")) { click(t, "переключатель $t"); Thread.sleep(4000); click(t, "переключатель $t обратно"); Thread.sleep(4000) }
         alive("переключатели настроек")
         click("[data-a=report]", "отправить отчёт"); Thread.sleep(3000)
         click(".tab[data-p=log]", "вкладка Log"); Thread.sleep(600)

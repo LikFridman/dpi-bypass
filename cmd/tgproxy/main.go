@@ -19,6 +19,7 @@ import (
 	"time"
 
 	svc "dpibypass/check"
+	"dpibypass/doh"
 	"dpibypass/router"
 	"dpibypass/speed"
 	"dpibypass/tg"
@@ -51,6 +52,7 @@ func main() {
 	checkSites := flag.String("check-sites", "", "проверить сервисы из JSON-файла (через -socks, если задан) и выйти")
 	light := flag.Bool("light", false, "облегчённая проверка (для перебора стратегий)")
 	quick := flag.Bool("quick", false, "фоновая проверка: только начало страницы")
+	useDoH := flag.Bool("doh", false, "проверки: имена сайтов - через зашифрованный DNS (как при включённом обходе)")
 	routerCfg := flag.String("router", "", "запустить маршрутизатор SOCKS5 по JSON-настройкам из файла")
 	speedTest := flag.Bool("speed", false, "замерить скорость видео YouTube (через -socks, если задан) и выйти")
 	checkDC := flag.Bool("check-dc", false, "проверить Telegram как приложение: MTProto напрямую к DC2 (через -socks, если задан) и выйти")
@@ -115,6 +117,9 @@ func main() {
 			dial = svc.Socks(*socks)
 		}
 		var mu sync.Mutex
+		if *useDoH {
+			dial = svc.Dial(doh.New(nil, nil).Wrap(doh.Dial(dial)))
+		}
 		svc.RunAll(context.Background(), sites, dial, svc.Options{Light: *light, Quick: *quick}, func(r svc.Result) {
 			j, _ := json.Marshal(r)
 			mu.Lock()
@@ -286,7 +291,8 @@ func runRouter(path string) {
 			return true
 		})
 		st, _ := json.Marshal(map[string]any{"tcp": r.St.TCP.Load(), "udp": r.St.UDP.Load(), "quic_dropped": r.St.QUICDropped.Load(),
-			"tg_direct": r.St.TGDirect.Load(), "tg_ws": r.St.TGWS.Load(), "errors": r.St.Errors.Load(), "groups": groups})
+			"tg_direct": r.St.TGDirect.Load(), "tg_ws": r.St.TGWS.Load(), "errors": r.St.Errors.Load(), "groups": groups,
+			"dns": r.St.DNS.Load(), "dns_fail": r.St.DNSFail.Load(), "doh": r.DNSStats()})
 		fmt.Printf("RSTATS %s\n", st)
 	}
 }

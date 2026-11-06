@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-var version = "2.2.1" // при сборке на GitHub подставляется номер версии
+var version = "2.3" // при сборке на GitHub подставляется номер версии
 
 var (
 	baseDir string
@@ -159,6 +159,7 @@ func main() {
 	initLog(filepath.Join(dataDir, "log.txt"))
 	initJob()
 	loadSettings()
+	go restoreDNS() // если в прошлый раз программа завершилась аварийно с включённым зашифрованным DNS
 
 	if guiMode {
 		runGUI(cmd)

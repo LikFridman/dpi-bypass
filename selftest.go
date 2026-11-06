@@ -5,10 +5,12 @@ package main
 import (
 	"context"
 	svc "dpibypass/check"
+	"dpibypass/doh"
 	"dpibypass/speed"
 	"dpibypass/tg"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -89,6 +91,25 @@ func selftest() int {
 		}
 		check("пинг измеряется", avgPing(res) > 0, pd)
 		w.Stop()
+	}
+	// зашифрованный DNS: ответ от DoH и локальный DNS-сервер (как при включённом обходе)
+	{
+		r := doh.New(nil, nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ips, derr := r.LookupIP(ctx, "www.instagram.com")
+		cancel()
+		check("зашифрованный DNS (DoH)", derr == nil && len(ips) > 0, fmt.Sprint(ips, derr))
+		if pc, lerr := net.ListenPacket("udp", "127.0.0.1:0"); lerr == nil {
+			go r.ServeUDP(pc)
+			res := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				return net.Dial("udp", pc.LocalAddr().String())
+			}}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			a, e := res.LookupHost(ctx, "discord.com")
+			cancel()
+			pc.Close()
+			check("локальный DNS-сервер через DoH", e == nil && len(a) > 0, fmt.Sprint(a, e))
+		}
 	}
 	px := &tg.TGProxy{Secret: make([]byte, 16)}
 	err = px.Listen("127.0.0.1:0")

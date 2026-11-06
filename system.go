@@ -33,6 +33,8 @@ type Settings struct {
 	// версия принятого пользовательского соглашения (0 - не принято) и когда
 	Consent   int    `json:"consent"`
 	ConsentAt string `json:"consent_at,omitempty"`
+	// зашифрованный DNS выключен вручную (по умолчанию включён)
+	NoDoH bool `json:"no_doh,omitempty"`
 }
 
 var settings = Settings{Tray: true, LastMode: modeWithVPN, BgDim: 45}

@@ -108,6 +108,7 @@ func (s VPNState) Mode() string {
 // ---------- адаптеры ----------
 
 type adapter struct {
+	GUID    string // {....} - имя адаптера в реестре
 	Type    uint32 // 6 Ethernet, 71 Wi-Fi, 23 PPP (PPPoE)
 	Index   uint32
 	Name    string // понятное имя ("Ethernet", "Wi-Fi")
@@ -144,7 +145,7 @@ func listAdapters() []adapter {
 	}
 	var out []adapter
 	for ai := (*syscall.IpAdapterInfo)(unsafe.Pointer(&buf[0])); ai != nil; ai = ai.Next {
-		a := adapter{Index: ai.Index, Type: ai.Type, Desc: cstr(ai.Description[:]), Name: names[int(ai.Index)]}
+		a := adapter{Index: ai.Index, Type: ai.Type, Desc: cstr(ai.Description[:]), Name: names[int(ai.Index)], GUID: cstr(ai.AdapterName[:])}
 		for g := &ai.GatewayList; g != nil; g = g.Next {
 			if s := cstr(g.IpAddress.String[:]); s != "" && s != "0.0.0.0" {
 				a.Gateway = true

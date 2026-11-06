@@ -214,6 +214,7 @@ input[type=range]{accent-color:var(--accent);width:100%}
         <div class="set"><div style="flex:1"><b>Blur</b><span id="blurLbl">0 px</span><input type="range" id="bgBlur" min="0" max="30" value="0" aria-label="Blur"></div></div>
       </div>
       <div class="card glass pad">
+        <div class="set"><div><b>Encrypted DNS</b><span>имена сайтов - через зашифрованный DNS (Cloudflare, Google), провайдер не подменит адрес</span></div><button class="tog sm" id="togDoh" aria-label="Encrypted DNS"><i></i></button></div>
         <div class="set"><div><b>Block QUIC</b><span>UDP 443 отбрасывается: YouTube и браузеры переходят на TCP, где работает обход</span></div><button class="tog sm" id="togQuic" aria-label="Block QUIC"><i></i></button></div>
         <div class="set"><div><b>Discord voice (UDP)</b><span>UDP 50000–65535 через byedpi с фейковыми пакетами</span></div><button class="tog sm" id="togUdp" aria-label="Discord voice"><i></i></button></div>
         <div class="set"><div><b>Telegram</b><span id="tgModeHint">auto — напрямую, при сбоях серверов — прозрачно через WebSocket</span></div>
@@ -273,6 +274,7 @@ $$("[data-a]").forEach(b=>b.addEventListener("click",()=>{
   call(a);
 }));
 $("#mainTog").addEventListener("click",()=>call((S.running||S.starting)?"off":"on"));
+$("#togDoh").addEventListener("click",()=>{S.doh=!S.doh;$("#togDoh").classList.toggle("on",S.doh);call("doh",S.doh?1:0)});
 $("#togQuic").addEventListener("click",()=>{S.blockQuic=!S.blockQuic;$("#togQuic").classList.toggle("on",S.blockQuic);call("blockQuic",S.blockQuic?1:0)});
 $("#togUdp").addEventListener("click",()=>{S.discordUdp=!S.discordUdp;$("#togUdp").classList.toggle("on",S.discordUdp);call("discordUdp",S.discordUdp?1:0)});
 $$("[data-m]").forEach(b=>b.addEventListener("click",()=>{S.tgMode=b.dataset.m;paintMode();call("tgMode",b.dataset.m)}));
@@ -305,7 +307,7 @@ function apply(st){
   $("#cnt").textContent=st.sitesTotal?st.sitesOk+"/"+st.sitesTotal+" up":"";
   $("#stratName").textContent=st.strategy||"not selected yet";
   $("#togBoot").classList.toggle("on",!!st.boot);
-  $("#togQuic").classList.toggle("on",!!st.blockQuic);$("#togUdp").classList.toggle("on",!!st.discordUdp);paintMode();
+  $("#togDoh").classList.toggle("on",!!st.doh);$("#togQuic").classList.toggle("on",!!st.blockQuic);$("#togUdp").classList.toggle("on",!!st.discordUdp);paintMode();
   $("#ytSpeed").textContent=st.ytKBps>0?("YouTube video: "+st.ytKBps+" KB/s при подборе"):"";
   $("#tgLink").textContent=st.tgLink||(st.tgError?("Ошибка: "+st.tgError):"Starts with the bypass");
   $("#tgStats").textContent=st.tgStats||"";

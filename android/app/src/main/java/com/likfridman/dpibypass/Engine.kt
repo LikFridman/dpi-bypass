@@ -118,6 +118,8 @@ object Engine {
     @Volatile var cancel = false
     @Volatile var results: Map<String, Probe> = emptyMap()
     @Volatile var checkedAt = 0L
+    /** Проверки через зашифрованный DNS - как трафик при включённом обходе (настройка Encrypted DNS) */
+    @Volatile var useDoH = true
     @Volatile var progCur = 0
     @Volatile var progTotal = 0
     @Volatile var pinging = false
@@ -196,6 +198,7 @@ object Engine {
             if (port != null) cmd += listOf("-socks", "127.0.0.1:$port")
             if (light) cmd += "-light"
             if (quick) cmd += "-quick"
+            if (useDoH) cmd += "-doh"
             val p = ProcessBuilder(cmd).redirectErrorStream(true).start()
             val killer = Thread { if (!p.waitFor(60, TimeUnit.SECONDS)) p.destroyForcibly() }.apply { isDaemon = true; start() }
             p.inputStream.bufferedReader().forEachLine { line ->
@@ -584,6 +587,8 @@ object Engine {
         o.put("tgWorker", Store.tgWorker(ctx))
         o.put("needConsent", !Store.consentOK(ctx))
         o.put("blockQuic", Store.blockQuic(ctx))
+        o.put("doh", Store.doh(ctx))
+        o.put("dns", runCatching { JSONObject(Pool.routerStats).optJSONObject("doh") }.getOrNull() ?: JSONObject())
         o.put("discordUdp", Store.discordUdp(ctx))
         o.put("tgMode", Store.tgMode(ctx))
         o.put("ytKBps", plan?.ytKBps ?: 0)

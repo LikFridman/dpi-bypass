@@ -89,6 +89,7 @@ func startBypass(mode int, reselect bool) {
 	eng = e
 	engMu.Unlock()
 	defer func() {
+		dohStop()
 		close(e.done)
 		engMu.Lock()
 		if eng == e {
@@ -125,6 +126,7 @@ func startBypass(mode int, reselect bool) {
 		info("Сейчас VPN не включён. Когда включишь - программа сама подстроится (проверка раз в минуту).")
 	}
 	showISP()
+	dohStart() // зашифрованный DNS - до проверок, чтобы подбор видел то же, что браузер
 	var cfg *Config
 	if !reselect {
 		cfg = loadConfig()
@@ -650,6 +652,11 @@ func runForever(cfg *Config, svcs []Service, e *engineRun) {
 				info("%s Изменилось состояние VPN/сети - перезапускаю обход", ts())
 			}
 			printVPN(nv)
+			if nv.Active() {
+				dohStop() // DNS - у VPN-клиента
+			} else {
+				dohStart()
+			}
 			restart()
 			fails = map[string]int{}
 		}

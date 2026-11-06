@@ -1,6 +1,8 @@
 package router
 
 import (
+	"context"
+	"dpibypass/doh"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -98,6 +100,28 @@ func (r *Router) handleUDP(c net.Conn) {
 			pkt := append([]byte{}, buf[:n]...)
 			host, port, data, err := parseUDPHeader(pkt)
 			if err != nil {
+				continue
+			}
+			if port == 53 && r.dns != nil {
+				// DNS-запрос приложения: отвечаем через зашифрованный DNS (провайдер не подменит)
+				r.St.DNS.Add(1)
+				go func(host string, data []byte) {
+					ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+					defer cancel()
+					resp, err := r.dns.Exchange(ctx, data)
+					if err != nil {
+						r.St.DNSFail.Add(1)
+						if len(data) < 12 {
+							return
+						}
+						resp = dnsServfail(data)
+					}
+					ip := net.ParseIP(host)
+					if ip == nil {
+						return
+					}
+					reply(append(udpHeader(&net.UDPAddr{IP: ip, Port: 53}), resp...))
+				}(host, append([]byte{}, data...))
 				continue
 			}
 			if port == 443 && r.cfg.BlockQUIC {
@@ -214,3 +238,17 @@ func dialUpstreamUDP(up string, reply func([]byte)) (*upstreamUDP, error) {
 
 func (u *upstreamUDP) send(pkt []byte) { u.conn.Write(pkt) }
 func (u *upstreamUDP) close()          { u.ctl.Close(); u.conn.Close() }
+
+// dnsServfail - ответ «сервер не смог» (приложение повторит запрос)
+func dnsServfail(q []byte) []byte {
+	out := append([]byte{}, q...)
+	out[2] = 0x81 | (q[2] & 0x01)
+	out[3] = 0x82
+	for i := 6; i < 12; i++ {
+		out[i] = 0
+	}
+	if n := doh.QuestionEnd(q); n > 0 {
+		out = out[:n]
+	}
+	return out
+}

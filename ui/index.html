@@ -357,6 +357,7 @@ body.hasbg{--glass:rgba(12,14,34,.62)}
       <div class="head st" style="--i:0"><h1>Settings</h1></div>
       <div class="card glass pad st" style="--i:1">
         <div class="set"><div><b>Start with Windows</b><span>обход включится сам при входе в систему, без окна UAC</span></div><button class="tog sm" id="togAuto" aria-label="Запускать вместе с Windows"><i></i></button></div>
+        <div class="set"><div><b>Encrypted DNS</b><span>имена сайтов - через зашифрованный DNS (Cloudflare, Google), провайдер не подменит адрес; в режиме No VPN</span></div><button class="tog sm" id="togDoh" aria-label="Encrypted DNS"><i></i></button></div>
         <div class="set"><div><b>Minimize to tray</b><span>при сворачивании и закрытии окно уходит в значок у часов</span></div><button class="tog sm" id="togTray" aria-label="Сворачивать в трей"><i></i></button></div>
       </div>
       <div class="card glass pad st" style="--i:2">
@@ -440,6 +441,7 @@ $$(".mode").forEach(m=>m.addEventListener("click",()=>{
   if(S.running) call("on",selMode);
 }));
 $("#togAuto").addEventListener("click",()=>{const v=!S.autostart;S.autostart=v;paintTog("#togAuto",v);call("autostart",v?1:0)});
+$("#togDoh").addEventListener("click",()=>{const v=!S.doh;S.doh=v;paintTog("#togDoh",v);call("doh",v?1:0)});
 $("#togTray").addEventListener("click",()=>{const v=!S.tray;S.tray=v;paintTog("#togTray",v);call("tray",v?1:0)});
 
 function paintTog(sel,on){$(sel).classList.toggle("on",!!on)}
@@ -503,7 +505,7 @@ function apply(st){
   const meta=$("#heroMeta");meta.replaceChildren();
   [st.isp,st.vpn].forEach(x=>{if(x){const d=document.createElement("div");d.textContent=x;meta.appendChild(d)}});
   renderSites();
-  paintTog("#togAuto",st.autostart);paintTog("#togTray",st.tray);
+  paintTog("#togAuto",st.autostart);paintTog("#togTray",st.tray);paintTog("#togDoh",st.doh);
   $("#updCard").classList.toggle("show",!!st.update);
   $("#updTitle").textContent=st.update?("v"+st.update+" available"):"";
   $("#updLine").textContent=st.update?("v"+st.update+" available · current v"+st.version):("current v"+st.version);

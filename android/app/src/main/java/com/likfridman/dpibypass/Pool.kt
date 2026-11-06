@@ -78,6 +78,7 @@ object Pool {
             .put("groups", groups)
             .put("block_quic", Store.blockQuic(ctx))
             .put("telegram_mode", Store.tgMode(ctx))
+            .put("doh", Store.doh(ctx))
         if (procs.containsKey(Engine.UDP_PORT)) {
             // голос Discord: UDP 50000-65535
             o.put("udp_upstream", "127.0.0.1:${Engine.UDP_PORT}").put("udp_ports", JSONArray().put(JSONArray().put(50000).put(65535)))

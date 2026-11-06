@@ -46,6 +46,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         Report.installCrashHandler(this)
         Engine.nativeDir = applicationInfo.nativeLibraryDir
+        Engine.useDoH = Store.doh(this)
         if (Store.consentOK(this)) {
             Report.sendPendingCrash(this)
             // отчёт при каждом запуске (не при повороте экрана)
@@ -356,8 +357,9 @@ class MainActivity : Activity() {
                     }.start()
                     null
                 }
-                "blockQuic", "discordUdp", "tgMode" -> {
+                "blockQuic", "discordUdp", "tgMode", "doh" -> {
                     when (cmd) {
+                        "doh" -> { Store.setDoh(this@MainActivity, arg == "1"); Engine.useDoH = arg == "1" }
                         "blockQuic" -> Store.setBlockQuic(this@MainActivity, arg == "1")
                         "discordUdp" -> Store.setDiscordUdp(this@MainActivity, arg == "1")
                         else -> if (arg in listOf("auto", "ws", "direct")) Store.setTgMode(this@MainActivity, arg)
