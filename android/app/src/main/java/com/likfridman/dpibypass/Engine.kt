@@ -129,10 +129,7 @@ object Engine {
         val base = Store.reportUrl(ctx)
         if (asn.isEmpty() || !base.startsWith("https://")) return emptyList()
         return runCatching {
-            val c = java.net.URL("$base/presets?platform=android&asn=$asn").openConnection() as java.net.HttpURLConnection
-            c.connectTimeout = 4000; c.readTimeout = 4000
-            val j = JSONObject(c.inputStream.bufferedReader().readText())
-            c.disconnect()
+            val j = JSONObject(Net.get("$base/presets?platform=android&asn=$asn", 4000).body)
             val a = j.optJSONArray("strategies") ?: JSONArray()
             val ids = (0 until a.length()).map { a.getJSONObject(it).optString("id") }.filter { strategyById(it) != null }
             if (ids.isNotEmpty()) log("У других пользователей $asn чаще всего работают: ${ids.joinToString()} (по ${j.optInt("reports")} отчётам) - пробую их первыми")

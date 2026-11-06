@@ -367,18 +367,7 @@ object Report {
     private fun queueDir(ctx: Context) = File(ctx.filesDir, "reports").apply { mkdirs() }
 
     private fun reportUrl(ctx: Context): String {
-        for (u in updateUrls) {
-            runCatching {
-                val c = URL(u).openConnection() as HttpURLConnection
-                c.connectTimeout = 5000; c.readTimeout = 5000
-                val j = JSONObject(c.inputStream.bufferedReader().readText())
-                c.disconnect()
-                val r = j.optString("report_url").trimEnd('/')
-                Store.setReportUrl(ctx, r)
-                j.optJSONArray("tg_proxy_sources")?.let { a -> Store.setTgSources(ctx, (0 until a.length()).map { a.getString(it) }) }
-                return r
-            }
-        }
+        Updater.refreshConfig(ctx)
         return Store.reportUrl(ctx)
     }
 
@@ -402,18 +391,11 @@ object Report {
      */
     private fun post(url: String, f: File): String? {
         if (!url.startsWith("https://")) return null
-        val c = URL("$url/report").openConnection() as HttpURLConnection
-        c.connectTimeout = 8000; c.readTimeout = 15000
-        c.requestMethod = "POST"; c.doOutput = true
-        c.setRequestProperty("Content-Type", "application/json")
-        c.outputStream.use { it.write(f.readBytes()) }
-        val code = c.responseCode
-        val body = runCatching { (if (code < 400) c.inputStream else c.errorStream).bufferedReader().readText() }.getOrDefault("")
-        c.disconnect()
-        return when (code) {
-            200 -> runCatching { JSONObject(body).optString("id") }.getOrDefault("").ifEmpty { null }?.also { f.delete() }
-            400, 413 -> { Engine.dbg("отчёт отклонён сервером ($code): $body"); f.delete(); "" }
-            else -> { Engine.dbg("сервер отчётов ответил $code: ${body.take(200)}"); null }
+        val r = Net.request("$url/report", "POST", f.readBytes(), 15000)
+        return when (r.code) {
+            200 -> runCatching { JSONObject(r.body).optString("id") }.getOrDefault("").ifEmpty { null }?.also { f.delete() }
+            400, 413 -> { Engine.dbg("отчёт отклонён сервером (${r.code}): ${r.body}"); f.delete(); "" }
+            else -> { Engine.dbg("сервер отчётов ответил ${r.code}: ${r.body.take(200)}"); null }
         }
     }
 

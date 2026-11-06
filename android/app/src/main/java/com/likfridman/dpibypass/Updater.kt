@@ -21,11 +21,7 @@ object Updater {
     fun fetch(): String {
         for (u in versionUrls) {
             runCatching {
-                val c = URL(u).openConnection() as HttpURLConnection
-                c.connectTimeout = 6000; c.readTimeout = 6000
-                c.setRequestProperty("Cache-Control", "no-cache")
-                val v = c.inputStream.bufferedReader().readText().trim()
-                c.disconnect()
+                val v = Net.get(u).takeIf { it.code == 200 }?.body?.trim() ?: return@runCatching
                 if (Regex("""\d+(\.\d+){0,3}""").matches(v)) {
                     latest = v; checkedAt = System.currentTimeMillis()
                     return v
@@ -44,10 +40,9 @@ object Updater {
     fun refreshConfig(ctx: Context) {
         for (u in configUrls) {
             runCatching {
-                val c = URL(u).openConnection() as HttpURLConnection
-                c.connectTimeout = 6000; c.readTimeout = 6000
-                val j = org.json.JSONObject(c.inputStream.bufferedReader().readText())
-                c.disconnect()
+                val r = Net.get(u)
+                if (r.code != 200) return@runCatching
+                val j = org.json.JSONObject(r.body)
                 j.optString("report_url").trimEnd('/').takeIf { it.startsWith("https://") }?.let { Store.setReportUrl(ctx, it) }
                 j.optJSONArray("tg_proxy_sources")?.let { a -> Store.setTgSources(ctx, (0 until a.length()).map { a.getString(it) }) }
                 j.optJSONArray("dns_providers")?.takeIf { it.length() > 0 }?.let { Store.setDnsProviders(ctx, it.toString()) }

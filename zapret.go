@@ -225,9 +225,14 @@ func buildArgs(cfg *Config, svcs []Service, withUDPExtras bool) ([]string, error
 		args = append(args, "--new")
 	}
 
-	// свой Cloudflare Worker для Telegram тоже пропускаем через обход
+	// свой Cloudflare Worker для Telegram, сервер отчётов и обновления с GitHub - тоже через обход
+	// (*.workers.dev и raw.githubusercontent.com у части провайдеров заблокированы)
+	own := []string{"workers.dev", "raw.githubusercontent.com"}
 	if tgWorkerHost != "" {
-		args = append(args, "--filter-tcp=443", "--hostlist-domains="+tgWorkerHost)
+		own = append(own, tgWorkerHost)
+	}
+	{
+		args = append(args, "--filter-tcp=443", "--hostlist-domains="+strings.Join(own, ","))
 		args = append(args, ex...)
 		args = append(args, best.Args...)
 		args = append(args, "--new")
