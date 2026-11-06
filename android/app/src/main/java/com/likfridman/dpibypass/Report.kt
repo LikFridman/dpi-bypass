@@ -294,8 +294,13 @@ object Report {
             }
             when (code) {
                 200 -> {
-                    f.delete()
                     val id = runCatching { JSONObject(body).optString("id") }.getOrDefault("")
+                    if (id.isEmpty()) {
+                        // ответил не наш сервер отчётов (например, шаблон Worker'а) - отчёт не теряем
+                        done?.invoke("Сервер отчётов ещё не настроен - отчёт сохранён и уйдёт позже")
+                        return
+                    }
+                    f.delete()
                     Engine.log("Отчёт для разработчика отправлен, номер $id")
                     done?.invoke("Отчёт отправлен, номер $id")
                 }

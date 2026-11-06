@@ -374,10 +374,16 @@ func flushReports(verbose bool) {
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		resp.Body.Close()
+		var r struct{ ID string }
+		if resp.StatusCode == 200 && (json.Unmarshal(body, &r) != nil || r.ID == "") {
+			// ответил не наш сервер отчётов (например, шаблон Worker'а) - отчёт не теряем
+			if verbose {
+				uiToast("Сервер отчётов ещё не настроен - отчёт сохранён и уйдёт позже.")
+			}
+			return
+		}
 		if resp.StatusCode == 200 {
 			os.Remove(f)
-			var r struct{ ID string }
-			json.Unmarshal(body, &r)
 			info("Отчёт для разработчика отправлен, номер %s", r.ID)
 			if verbose {
 				uiToast("Отчёт отправлен, номер " + r.ID)
