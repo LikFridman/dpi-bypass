@@ -290,6 +290,11 @@ h2{margin:0;font-size:15px;font-weight:700}
         <div class="row" style="margin-top:10px"><button class="btn" data-a="openWorker">Cloudflare Worker guide</button></div>
       </div>
       <div class="card glass pad st" style="--i:3;display:flex;flex-direction:column;gap:12px">
+        <div class="row" style="justify-content:space-between;align-items:center"><h2>Public proxies</h2><button class="btn" data-a="tgFind" id="tgFindBtn">Find</button></div>
+        <div class="dim" id="tgFoundLine" style="font-size:13px">Источники: публичные списки MTProto на GitHub; каждый прокси проверяется запросом req_pq к DC2.</div>
+        <div class="list" id="tgFound"></div>
+      </div>
+      <div class="card glass pad st" style="--i:4;display:flex;flex-direction:column;gap:12px">
         <h2>Backup proxies</h2>
         <div class="muted">Если ничего выше не проходит, Telegram пойдёт через твой прокси. Подходят ссылки tg://proxy (в том числе FakeTLS-секреты ee…) и socks5://адрес:порт.</div>
         <div class="row"><label for="tgUp" class="sr" style="position:absolute;left:-9999px">Proxy link</label><input id="tgUp" class="inp" placeholder="tg://proxy?server=…&amp;port=…&amp;secret=…  или  socks5://host:port"><button class="btn pri" data-a="tgAddProxy" style="height:44px">Add</button><button class="btn" data-a="tgClearProxies" style="height:44px">Clear</button></div>
@@ -465,6 +470,18 @@ function apply(st){
   $("#updLine").textContent=st.update?("v"+st.update+" available · current v"+st.version):("current v"+st.version);
   $("#tgLink").textContent=st.tgLink||"Starts with the bypass";
   $("#tgStats").textContent=st.tgStats||"";
+  const tf=st.tgFound||[];
+  $("#tgFindBtn").disabled=!!st.tgSearching;$("#tgFindBtn").textContent=st.tgSearching?"Searching…":"Find";
+  $("#tgFoundLine").textContent=st.tgSearching?"Проверяю публичные прокси…":(st.tgFoundAt?("Updated "+st.tgFoundAt+" · Use — запасной маршрут локального прокси, Open — добавить прямо в Telegram"):"Источники: публичные списки MTProto на GitHub; каждый прокси проверяется запросом req_pq к DC2.");
+  const fj=JSON.stringify(tf);
+  if(fj!==window.__lastFound){window.__lastFound=fj;$("#tgFound").replaceChildren(...tf.map(f=>{
+    const r=document.createElement("div");r.className="r";
+    const n=document.createElement("span");n.className="nm";n.textContent=f.name;r.appendChild(n);
+    const k=document.createElement("span");k.className="sg";k.textContent=f.kind;r.appendChild(k);
+    const b=document.createElement("span");b.className="bd ok";b.textContent=f.ms+" ms";r.appendChild(b);
+    const u=document.createElement("button");u.className="btn";u.style.cssText="height:30px;padding:0 10px;font-size:12px";u.textContent="Use";u.onclick=()=>call("tgUse",f.link);r.appendChild(u);
+    const o=document.createElement("button");o.className="btn";o.style.cssText="height:30px;padding:0 10px;font-size:12px";o.textContent="Open";o.onclick=()=>call("tgOpenLink",f.link);r.appendChild(o);
+    return r}))}
   const tp=st.tgProxies||[];$("#tgProxies").replaceChildren(...(tp.length?tp:["—"]).map(x=>{const d=document.createElement("div");d.className="r";d.textContent=x;return d}));
   $("#defPath").textContent=st.dir||"";$("#dirLine").textContent=st.dir||"";
   $("#defState").textContent=st.missing&&st.missing.length?("Не хватает файлов: "+st.missing.join(", ")+" — скорее всего их удалил Защитник."):"Все файлы winws на месте.";

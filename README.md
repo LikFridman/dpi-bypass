@@ -1,171 +1,98 @@
 # dpi-bypass
 
 <p align="center">
-  <a href="https://github.com/LikFridman/dpi-bypass/raw/main/dpi-bypass.exe"><img alt="Скачать для Windows" src="https://img.shields.io/badge/%E2%AC%87%20%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F-Windows-2f7bff?style=for-the-badge&logo=windows&logoColor=white"></a>
+  <a href="https://github.com/LikFridman/dpi-bypass/raw/main/dpi-bypass.exe"><img alt="Windows" src="https://img.shields.io/badge/%E2%AC%87%20%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F-Windows-2f7bff?style=for-the-badge&logo=windows&logoColor=white"></a>
   &nbsp;
-  <a href="https://github.com/LikFridman/dpi-bypass/raw/main/dpi-bypass.apk"><img alt="Скачать для Android" src="https://img.shields.io/badge/%E2%AC%87%20%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F-Android-34a853?style=for-the-badge&logo=android&logoColor=white"></a>
+  <a href="https://github.com/LikFridman/dpi-bypass/raw/main/dpi-bypass.apk"><img alt="Android" src="https://img.shields.io/badge/%E2%AC%87%20%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F-Android-34a853?style=for-the-badge&logo=android&logoColor=white"></a>
 </p>
 
-Обход DPI-блокировок (YouTube, Discord, Instagram, X, Rutracker и др.) без VPN-сервера. Программа сама проверяет, что и как заблокировано, подбирает рабочий способ обхода и следит, чтобы он не сломался. Есть встроенный прокси для Telegram.
+Локальный обход DPI без внешнего сервера: диагностика блокировок по стадиям, автоподбор стратегий, сторож с переподбором, MTProto-прокси для Telegram с WebSocket-транспортом и поиском публичных прокси.
 
-## Содержание
+| | Windows | Android |
+|---|---|---|
+| Движок | [zapret](https://github.com/bol-van/zapret) `winws` + WinDivert | [byedpi](https://github.com/hufrea/byedpi) за `VpnService` через [hev-socks5-tunnel](https://github.com/heiher/hev-socks5-tunnel) |
+| Требования | Win10+ x64, права администратора (драйвер WinDivert) | Android 8.0+ (API 26), arm64 / armv7 / x86_64 |
+| Telegram | локальный MTProto-прокси `127.0.0.1:1443` | то же, `libtgproxy.so` (общее Go-ядро) |
+| UI | WebView2, трей, автозапуск через планировщик | WebView, плитка QS, автозапуск при загрузке |
 
-- [Windows](#windows)
-- [Android](#android)
-- [Telegram](#telegram)
-- [Как это работает](#как-это-работает)
-- [Состояние сайтов и пинг](#состояние-сайтов-и-пинг)
-- [Файлы и настройки](#файлы-и-настройки)
-- [Командная строка](#командная-строка)
-- [Отчёты и соглашение](#отчёты-и-соглашение)
-- [Частые проблемы](#частые-проблемы)
-- [Сборка](#сборка)
-- [Благодарности](#благодарности)
+## Пайплайн
+
+1. **Baseline без обхода** — для каждого сервиса и каждого его адреса: DNS (системный, при подмене — DoH) → TCP:443 → TLS → чтение до 96 КБ. Результат классифицируется: `dns`, `tcp` (блок по IP, обходом не лечится), `tls` (сброс/зависание на SNI), `data`, `throttle` (обрыв после N КБ).
+2. **Подбор** — перебор стратегий только по сервисам со стадией `tls`/`data`/`throttle`. Первыми идут пресет провайдера по ASN (Windows) или ранее сработавшие на устройстве (Android). На Windows сервисы жадно покрываются минимальным набором стратегий (группы с отдельными hostlist), на Android берётся одна лучшая стратегия byedpi.
+3. **Сторож** — проверка раз в 60 с; если ≥ половины сервисов дважды подряд не отвечает — переподбор (не чаще раза в 10 мин). Перезапуск движка при падении, реакция на смену VPN/адаптера.
+4. **Автосписок** (Windows) — новые заблокированные домены попадают в `auto-hostlist`, для них раз в 30 мин подбирается своя стратегия.
+5. **Обновления** — стратегии, сервисы, пресеты, адрес отчётов и источники прокси приходят из [`update/update.json`](update/update.json) без пересборки (raw.githubusercontent → jsDelivr).
+
+Статус сайта в UI: `42 ms` — время TCP-хендшейка с сервером при успешной проверке через обход; `none` — нет ответа (причина и стадия в журнале); `via VPN` — Telegram через SOCKS VPN-клиента.
 
 ## Windows
 
-**Установка**
-1. Скачай [dpi-bypass.exe](https://github.com/LikFridman/dpi-bypass/raw/main/dpi-bypass.exe) и положи в отдельную папку, например `C:\dpi-bypass`.
-2. Запусти и разреши права администратора: они нужны драйверу WinDivert, который перехватывает пакеты.
-3. При первом запуске программа скачает winws (zapret) в папку `zapret-winws` рядом с exe.
-4. Выбери режим и включи переключатель.
-
-**Режимы**
-| Режим | Что происходит |
+| Режим | Поведение |
 |---|---|
-| **No VPN** | VPN-клиент закрывается, работает только обход. |
-| **With VPN** | VPN не трогается. Обход работает только для трафика мимо VPN, а Telegram может пойти через VPN. |
+| No VPN | VPN-клиенты закрываются, обход на всём трафике |
+| With VPN | VPN не трогается. При TUN — `--wf-iface` на физический адаптер, IP серверов VPN в `--ipset-exclude`; Telegram может идти через локальный SOCKS VPN-клиента |
 
-**Разделы окна**
-- **Bypass** — переключатель, режим, состояние сайтов и короткий журнал.
-- **Sites** — какая стратегия работает для каждого сайта и пинг. Кнопки: подобрать заново, подобрать для новых сайтов, изменить список.
-- **Deep scan** — перебор около 300 комбинаций параметров для одного упрямого сайта (10–30 минут).
-- **Telegram** — ссылка на прокси для Telegram Desktop, статистика, запасные прокси.
-- **Defender** — что делать, если Защитник удалил файлы winws.
-- **Log** — полный журнал и диагностика.
-- **Settings** — автозапуск, трей, фон окна, обновления, сброс.
+VPN детектируется по процессам (Toolhelp32), TCP-слушателям (`GetExtendedTcpTable`), адаптерам и маршруту по умолчанию (`GetBestInterface`). Для TUN-клиентов пишется `vpn-direct-domains.txt` — домены для правил Direct.
 
-Окно сворачивается в трей, автозапуск работает через планировщик задач (без окна UAC). Обновление: кнопка **Update**, файл проверяется по sha256.
+```
+dpi-bypass.exe                 GUI
+dpi-bypass.exe console         TUI-меню
+dpi-bypass.exe 1|2|3           No VPN | With VPN | stop
+dpi-bypass.exe check           диагностика
+dpi-bypass.exe deep <host>     глубокий перебор (~300 комбинаций desync)
+dpi-bypass.exe tune            стратегии для новых доменов автосписка
+dpi-bypass.exe update          самообновление (sha256)
+dpi-bypass.exe reset           сброс config.json и автосписка
+dpi-bypass.exe selftest        самопроверка (используется в CI)
+```
+
+`dpi-bypass-data/`: `sites.txt` (сервисы: `Имя | проверяемые хосты | домены`), `config.json`, `settings.json`, `lists/auto-hostlist.txt`, `telegram-proxies.txt`, `telegram-worker.txt`, `vpn-direct-domains.txt`, `reports/`, `log.txt`.
+
+`winws.exe` и `WinDivert64.sys` часто помечаются Защитником как HackTool — добавь каталог в исключения (раздел **Defender**).
 
 ## Android
 
-**Установка**
-1. Скачай [dpi-bypass.apk](https://github.com/LikFridman/dpi-bypass/raw/main/dpi-bypass.apk) и установи (разреши установку из неизвестных источников).
-   Если в Chrome загрузка застыла на 100%, файл уже скачан: открой ⋮ → «Скачанные файлы» и нажми «Всё равно скачать» (Chrome так помечает все APK). Или открой файл из приложения «Файлы» → «Загрузки».
-2. Включи переключатель и разреши VPN.
-3. Для Telegram открой вкладку **Telegram** и нажми **Connect Telegram**.
-
-Приложение поднимает локальный VPN: трафик телефона уходит в byedpi на самом телефоне, а оттуда в интернет напрямую. Внешнего сервера нет. Android 8.0 и новее.
-
-На Android одновременно работает только один VPN, поэтому обход заменяет другой VPN (например, Happ), пока включён.
-
-Есть плитка «Обход DPI» для шторки быстрых настроек, автозапуск после перезагрузки и режим «постоянный VPN» в настройках Android.
+`VpnService` (весь трафик, IPv4+IPv6, приложение исключено через `addDisallowedApplication`) → hev-socks5-tunnel (JNI) → byedpi на `127.0.0.1:1080` → сеть. Одновременно активен только один VPN, поэтому обход замещает другой VPN-клиент.
 
 ## Telegram
 
-Telegram блокируют по IP-адресам, а не только по DPI, поэтому для него есть отдельный локальный MTProto-прокси (на Windows и на Android). Telegram подключается к `127.0.0.1`, а прокси пробует способы по очереди:
+Локальный MTProto-прокси (obfuscated2, секрет `dd`). Маршруты по порядку, сломанный маршрут уходит в конец очереди на 3 мин:
 
-1. **WebSocket к web.telegram.org** — так работает веб-версия Telegram. Трафик выглядит как обычный HTTPS и проходит через обход DPI.
-2. **Свой Cloudflare Worker** — если IP Telegram заблокированы полностью. Worker бесплатный, код лежит в `cloudflare-worker.js`, инструкция в начале файла.
-3. **Запасные прокси** — твои ссылки `tg://proxy?...` (в том числе FakeTLS-секреты `ee…`) или `socks5://host:port`. Добавляются во вкладке Telegram.
-4. **Напрямую** к серверам Telegram.
-5. **Через VPN** (Windows, режим With VPN) — через SOCKS5 найденного VPN-клиента.
+1. **WebSocket** `wss://kwsN.web.telegram.org/apiws` — транспорт веб-клиента; на Android через byedpi, на Windows через winws.
+2. **Cloudflare Worker** — свой релей WS при блокировке IP Telegram ([`cloudflare-worker.js`](cloudflare-worker.js)).
+3. **Запасные прокси** — `tg://proxy` (plain / `dd` / FakeTLS `ee`, hex и base64) или `socks5://`.
+4. **TCP** напрямую к DC.
+5. **SOCKS VPN-клиента** (Windows, With VPN) — raw TCP и WS.
 
-Способ, который не сработал, на 3 минуты уходит в конец очереди. Кнопка **Test** на Android отправляет Telegram настоящий запрос через прокси и показывает время ответа.
+**Public proxies** — при старте и раз в 30 мин скачиваются публичные списки ([Argh94/Proxy-List](https://github.com/Argh94/Proxy-List), [SoliSpirit/mtproto](https://github.com/SoliSpirit/mtproto), [ALIILAPRO/MTProtoProxy](https://github.com/ALIILAPRO/MTProtoProxy), [Kudts/mtproto](https://github.com/Kudts/mtproto); переопределяются `tg_proxy_sources` в `update.json`). До 300 кандидатов проверяются параллельно настоящим `req_pq_multi` к DC2 через сам прокси (с FakeTLS-хендшейком и проверкой HMAC сервера). Топ перепроверяется, выводятся 3 с минимальной задержкой: **Use** — запасной маршрут локального прокси, **Open** — добавить в Telegram напрямую. MTProto шифрует трафик до серверов Telegram, оператор прокси видит только IP клиента.
 
-Звонки Telegram через прокси не работают — это ограничение самого Telegram.
+## Отчёты
 
-## Как это работает
-
-1. **Проверка без обхода.** Для каждого сайта: DNS → TCP → TLS → данные. Так видно, где именно обрыв: подмена DNS, блок по IP, сброс на TLS (DPI) или обрыв после нескольких килобайт.
-2. **Подбор стратегий.** Перебираются стратегии zapret (Windows) или byedpi (Android). Сначала те, что сработали у твоего провайдера (пресеты по номеру сети) и у тебя раньше.
-3. **Работа.** Раз в минуту сайты проверяются заново. Если половина перестала отвечать, стратегии подбираются заново. Если winws или byedpi упали, они перезапускаются.
-4. **Новые сайты.** На Windows новые заблокированные сайты подхватываются сами, и для каждого раз в 30 минут подбирается своя стратегия.
-5. **Обновления.** Новые стратегии и сайты приходят из `update/update.json` без обновления программы.
-
-Сайты, заблокированные по IP, обход DPI открыть не может — для них нужен VPN.
-
-## Состояние сайтов и пинг
-
-В списке сайтов вместо «открывается / не открывается» показан пинг:
-
-| Метка | Значение |
-|---|---|
-| `42 ms` | сайт отвечает через обход, это время TCP-соединения с сервером |
-| `none` | нет ответа: DPI, блок по IP или сервер недоступен (причина — в журнале) |
-| `via VPN` | Telegram идёт через VPN |
-| `checking…` | идёт проверка |
-| `off` | обход выключен |
-
-## Файлы и настройки
-
-Всё хранится в папке `dpi-bypass-data` рядом с exe:
-
-| Файл | Что в нём |
-|---|---|
-| `sites.txt` | список проверяемых сайтов (можно дописывать свои) |
-| `config.json` | подобранные стратегии |
-| `settings.json` | режим, трей, фон |
-| `lists/auto-hostlist.txt` | сайты, найденные автоматически |
-| `telegram-proxies.txt` | запасные прокси для Telegram |
-| `telegram-worker.txt` | адрес своего Cloudflare Worker |
-| `vpn-direct-domains.txt` | домены для правил Direct в VPN-клиенте (чтобы они шли через обход, а не через VPN) |
-| `log.txt` | журнал |
-| `reports/` | отчёты, которые ещё не удалось отправить |
-
-## Командная строка
-
-```
-dpi-bypass.exe            окно
-dpi-bypass.exe console    меню в терминале
-dpi-bypass.exe 1 | 2 | 3  без VPN | вместе с VPN | выключить
-dpi-bypass.exe check      диагностика
-dpi-bypass.exe deep сайт  глубокая проверка
-dpi-bypass.exe tune       подобрать стратегии для новых сайтов
-dpi-bypass.exe update     обновить программу
-dpi-bypass.exe reset      сбросить настройки
-```
-
-## Отчёты и соглашение
-
-При первом запуске программа показывает [пользовательское соглашение](AGREEMENT.md). Без согласия обход не включается.
-
-При каждом подключении и при ошибках разработчику уходит технический отчёт: IP и провайдер, устройство и система, найден ли VPN, какие стратегии проверялись и что каждая открыла, пинг и этап обрыва по каждому сайту, способы подключения Telegram, ошибки и последние строки журнала. Имя пользователя, имя компьютера и пути к личным папкам из журнала вырезаются. Номер отправленного отчёта пишется в журнал. Вручную: **Settings → Send report**.
-
-Отчёты принимает Cloudflare Worker разработчика ([report-worker](report-worker)) и хранит 90 дней.
-
-## Частые проблемы
-
-- **Защитник удаляет winws.exe или WinDivert.** Это ложное срабатывание: программа перехватывает пакеты. Добавь папку программы в исключения (раздел **Defender**).
-- **Все сайты `none`.** Запусти **Diagnostics**. Если причина «нет TCP-соединения», сайт заблокирован по IP и нужен VPN.
-- **Telegram не подключается.** Добавь запасной прокси или свой Cloudflare Worker (раздел [Telegram](#telegram)).
-- **Не работает вместе с VPN.** Включи режим With VPN. Для VPN в режиме TUN добавь домены из `vpn-direct-domains.txt` в правила Direct.
-- **Android: обход выключается сам.** Скорее всего, включили другой VPN — одновременно работает только один.
-
-Можно поделиться результатом подбора: **Settings → Share results** откроет готовую заявку на GitHub (провайдер и сработавшие стратегии, без личных данных).
+Обязательный акцепт [пользовательского соглашения](AGREEMENT.md) при первом запуске. Технический отчёт уходит при каждом подключении, при ошибках, падениях (со стеком) и вручную (Settings → Send report). Состав: сеть (IP, ASN, DNS, MTU, адаптеры), система и устройство, VPN, результаты всех проверенных стратегий, по-адресные результаты проверок, аргументы и вывод winws/byedpi, маршруты Telegram, журнал (имя пользователя, компьютера и пути вырезаются). Приёмник — Cloudflare Worker + D1 ([`report-worker/`](report-worker)), хранение 90 дней. Неотправленные отчёты копятся локально (до 20).
 
 ## Сборка
 
-Exe и APK собираются и проверяются в [GitHub Actions](../../actions) при каждом изменении:
-- **Windows:** тесты, сборка, самопроверка на Windows (winws со всеми стратегиями, проверка сайтов, прокси Telegram), проверка окна в WebView2.
-- **Android:** byedpi и hev-socks5-tunnel собираются из исходников через NDK, прокси Telegram — из Go, затем APK проверяется в эмуляторе (все стратегии, VPN-туннель, Telegram, интерфейс).
+CI ([`build.yml`](.github/workflows/build.yml)) на каждый push:
+- **windows-latest:** `go vet`, `go test`, сборка с ресурсами (goversioninfo), `selftest` (все стратегии в winws, полная конфигурация, пинг сервисов, запрос к Telegram через прокси, поиск публичных прокси, сборка отчёта), `uitest` (WebView2).
+- **ubuntu + эмулятор API 34:** byedpi и hev-socks5-tunnel через NDK из зафиксированных коммитов, `tgproxy` (Go, `CGO_ENABLED=0`) для трёх ABI, APK, самопроверка в эмуляторе (стратегии, VPN-туннель, Telegram, отчёт, UI).
 
-```
-go test ./...                                   # тесты
-GOOS=windows go build -ldflags "-H windowsgui" . # exe
+Бинарники коммитит бот в `main`.
+
+```sh
+go test ./...
+GOOS=windows go build -ldflags "-H windowsgui" -o dpi-bypass.exe .
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o libtgproxy.so ./cmd/tgproxy
 ```
 
 ## Благодарности
 
-Программа держится на чужой большой работе. Спасибо авторам:
+- [zapret](https://github.com/bol-van/zapret), [zapret-win-bundle](https://github.com/bol-van/zapret-win-bundle) — bol-van
+- [WinDivert](https://github.com/basil00/WinDivert) — basil00
+- [byedpi](https://github.com/hufrea/byedpi) — hufrea
+- [hev-socks5-tunnel](https://github.com/heiher/hev-socks5-tunnel) — heiher
+- [tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy) — Flowseal (идея WS-транспорта для Telegram; здесь своя реализация)
+- [go-webview2](https://github.com/jchv/go-webview2) — jchv
+- [goversioninfo](https://github.com/josephspurrier/goversioninfo) — josephspurrier
+- авторы публичных списков MTProto-прокси (см. раздел Telegram)
 
-- [**zapret**](https://github.com/bol-van/zapret) и [zapret-win-bundle](https://github.com/bol-van/zapret-win-bundle) — bol-van. Движок обхода DPI на Windows (winws), все стратегии на Windows построены на нём.
-- [**WinDivert**](https://github.com/basil00/WinDivert) — basil00. Драйвер перехвата пакетов, на котором работает winws.
-- [**byedpi**](https://github.com/hufrea/byedpi) — hufrea. Движок обхода DPI на Android.
-- [**hev-socks5-tunnel**](https://github.com/heiher/hev-socks5-tunnel) — heiher. Перевод трафика из VPN-туннеля Android в byedpi.
-- [**tg-ws-proxy**](https://github.com/Flowseal/tg-ws-proxy) — Flowseal. Идея прокси Telegram через WebSocket к web.telegram.org (здесь своя реализация на Go).
-- [**go-webview2**](https://github.com/jchv/go-webview2) — jchv. Окно программы на WebView2.
-- [**goversioninfo**](https://github.com/josephspurrier/goversioninfo) — josephspurrier. Иконка и сведения о версии в exe.
-- [**Telegram**](https://core.telegram.org/mtproto) — открытое описание протокола MTProto.
-
-Лицензия — [MIT](LICENSE).
+[MIT](LICENSE)

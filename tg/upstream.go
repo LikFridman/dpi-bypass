@@ -66,7 +66,8 @@ func ParseUpstream(link string) (Upstream, error) {
 			return u, errors.New("в ссылке нет server или secret")
 		}
 		u = Upstream{Kind: "mtproto", Addr: net.JoinHostPort(q.Get("server"), def(q.Get("port"), "443"))}
-		sec, err := decodeSecret(q.Get("secret"))
+		// в query "+" превращается в пробел - для base64-секретов возвращаем как было
+		sec, err := decodeSecret(strings.ReplaceAll(strings.TrimSpace(q.Get("secret")), " ", "+"))
 		if err != nil {
 			return u, err
 		}

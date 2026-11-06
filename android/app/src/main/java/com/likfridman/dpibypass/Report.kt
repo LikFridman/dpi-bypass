@@ -215,7 +215,7 @@ object Report {
             .put("telegram", JSONObject().put("running", TgProxy.ready).put("stats", TgProxy.stats)
                 .put("routes", runCatching { JSONObject(TgProxy.routes) }.getOrElse { JSONObject() })
                 .put("backup_proxies", Store.tgProxies(ctx).size).put("worker", Store.tgWorker(ctx).isNotBlank())
-                .put("error", TgProxy.lastError))
+                .put("error", TgProxy.lastError).put("public_found", TgProxy.found))
             .put("log", JSONArray(lines.takeLast(200).map { it.take(400) }))
         synchronized(lock) {
             r.put("baseline", JSONArray(baseline.toString())).put("tested", JSONArray(tested.toString()))
@@ -243,6 +243,7 @@ object Report {
                 c.disconnect()
                 val r = j.optString("report_url").trimEnd('/')
                 Store.setReportUrl(ctx, r)
+                j.optJSONArray("tg_proxy_sources")?.let { a -> Store.setTgSources(ctx, (0 until a.length()).map { a.getString(it) }) }
                 return r
             }
         }

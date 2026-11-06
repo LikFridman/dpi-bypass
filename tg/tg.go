@@ -688,6 +688,9 @@ func socks5Dial(proxy, target string) (net.Conn, error) {
 	return c, nil
 }
 
+// SocksDial - соединение с target через SOCKS5 без пароля (для HTTP-клиентов и т.п.)
+func SocksDial(proxy, target string) (net.Conn, error) { return socks5Dial(proxy, target) }
+
 // IsSocks5 - отвечает ли адрес как SOCKS5 без пароля
 func IsSocks5(addr string) bool {
 	c, err := net.DialTimeout("tcp", addr, time.Second)

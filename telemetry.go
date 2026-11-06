@@ -269,7 +269,8 @@ func buildReport(trigger string) map[string]any {
 		"timezone": fmt.Sprintf("%s %+d", zone, off/3600), "auto_hosts": len(readLines(autoListFile())),
 		"update_file": tmUpdateInfo(), "deep_active": deepActive.Load(),
 	}
-	tgInfo := map[string]any{"running": tgProxy != nil, "worker": tgWorkerHost != "", "backup_proxies": tgUpstreamNames()}
+	found, _ := tgFoundList()
+	tgInfo := map[string]any{"public_found": found, "running": tgProxy != nil, "worker": tgWorkerHost != "", "backup_proxies": tgUpstreamNames()}
 	if tgProxy != nil {
 		a, t, ws, tcp, f := tgProxy.Stats()
 		tgInfo["connections"] = map[string]int64{"active": a, "total": t, "websocket": ws, "tcp": tcp, "failed": f}

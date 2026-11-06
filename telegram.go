@@ -3,16 +3,22 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	_ "embed"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"dpibypass/tg"
 )
@@ -99,6 +105,78 @@ func tgUpstreamNames() []string {
 	return out
 }
 
+// ---------- поиск публичных прокси ----------
+
+var (
+	tgFoundMu   sync.Mutex
+	tgFound     []tg.Found
+	tgFoundAt   time.Time
+	tgSearching atomic.Bool
+)
+
+// tgSources - списки публичных прокси: tg_proxy_sources из update.json или встроенные
+func tgSources() []string {
+	if b, err := os.ReadFile(updateCache()); err == nil {
+		var u struct {
+			Sources []string `json:"tg_proxy_sources"`
+		}
+		if json.Unmarshal(b, &u) == nil && len(u.Sources) > 0 {
+			return u.Sources
+		}
+	}
+	return tg.DefaultSources
+}
+
+// tgDiscoverAsync ищет и проверяет публичные прокси в фоне; manual - по кнопке (с уведомлением)
+func tgDiscoverAsync(manual bool) {
+	if !tgSearching.CompareAndSwap(false, true) {
+		if manual {
+			uiToast("Поиск прокси уже идёт")
+		}
+		return
+	}
+	go func() {
+		defer tgSearching.Store(false)
+		logf := func(format string, a ...any) { info("%s %s", ts(), fmt.Sprintf(format, a...)) }
+		cands := tg.FetchCandidates(tgSources(), &http.Client{Timeout: 12 * time.Second}, logf)
+		if len(cands) > 300 {
+			cands = cands[:300]
+		}
+		if len(cands) == 0 {
+			if manual {
+				uiToast("Списки прокси недоступны - попробуй позже")
+			}
+			return
+		}
+		logf("Telegram: проверяю %d публичных прокси", len(cands))
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		found := tg.Discover(ctx, cands, 3, logf)
+		tgFoundMu.Lock()
+		if len(found) > 0 || tgFound == nil {
+			tgFound = found
+		}
+		tgFoundAt = time.Now()
+		tgFoundMu.Unlock()
+		for _, f := range found {
+			logf("Telegram: %s %s - %d мс", f.Kind, f.Name, f.Ms)
+		}
+		if manual {
+			if len(found) > 0 {
+				uiToast(fmt.Sprintf("Найдено прокси: %d, лучший %d мс", len(found), found[0].Ms))
+			} else {
+				uiToast("Рабочих публичных прокси не нашлось")
+			}
+		}
+	}()
+}
+
+func tgFoundList() ([]tg.Found, time.Time) {
+	tgFoundMu.Lock()
+	defer tgFoundMu.Unlock()
+	return append([]tg.Found{}, tgFound...), tgFoundAt
+}
+
 func tgSecretFile() string { return filepath.Join(dataDir, "telegram-secret.txt") }
 func tgPortFile() string   { return filepath.Join(dataDir, "telegram-port.txt") }
 
@@ -166,7 +244,7 @@ func tgHint(ipBlocked bool) {
 	} else {
 		say("       - включить VPN (Happ и т.п.): программа найдёт его и пустит Telegram через него;")
 	}
-	say("       - свой MTProto- или SOCKS5-прокси: вставь ссылку в разделе Telegram;")
+	say("       - публичный прокси из найденных (раздел Telegram -> Public proxies) или свой MTProto/SOCKS5;")
 	say("       - свой бесплатный Cloudflare Worker: инструкция в %s,", tgWorkerJS())
 	say("         адрес вписать в %s и перезапустить программу.", tgWorkerFile())
 }
@@ -226,6 +304,7 @@ func startTelegram(openLink bool, cfg *Config) {
 	if tgWorkerHost != "" {
 		info("Cloudflare Worker для Telegram: %s", tgWorkerHost)
 	}
+	tgDiscoverAsync(false)
 	if _, blocked := cfg.Unfixable["Telegram"]; blocked && tgWorkerHost == "" && len(vpnSocks()) == 0 {
 		tgHint(true)
 		tgHinted = true
@@ -234,6 +313,11 @@ func startTelegram(openLink bool, cfg *Config) {
 
 // tgWatch вызывается сторожем: подсказать, если Telegram никак не подключается
 func tgWatch() {
+	if tgProxy != nil && !tgSearching.Load() {
+		if _, at := tgFoundList(); time.Since(at) > 30*time.Minute {
+			tgDiscoverAsync(false)
+		}
+	}
 	if tgProxy == nil || tgHinted {
 		return
 	}

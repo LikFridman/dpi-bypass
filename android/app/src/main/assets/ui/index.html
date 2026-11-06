@@ -94,6 +94,9 @@ h2{margin:0;font-size:15px;font-weight:700}
 .bgprev{width:100%;height:120px;border-radius:16px;border:1px solid var(--line);background:rgba(255,255,255,.05) center/cover no-repeat;margin-bottom:12px;display:grid;place-items:center;color:var(--dim);font-size:13px}
 input[type=range]{accent-color:var(--accent);width:100%}
 .note{font-size:13px;color:var(--muted);line-height:1.55}
+.fr{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--sep)}.fr:last-child{border-bottom:0}
+.fr .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}.fr .k{font-size:11px;color:var(--dim)}
+.fr .btn{min-height:32px;padding:0 10px;font-size:12px}
 .gap{display:flex;flex-direction:column;gap:12px}
 
 /* нижняя панель */
@@ -162,6 +165,11 @@ input[type=range]{accent-color:var(--accent);width:100%}
         <div class="note">Нажми «Connect Telegram» один раз и подтверди в Telegram. Дальше он сам ходит через обход, пока обход включён. Звонки через прокси Telegram не поддерживает.</div>
       </div>
       <div class="card glass pad gap">
+        <div class="head" style="min-height:0"><h2>Public proxies</h2><button class="btn" data-a="tgFind" id="tgFindBtn" style="min-height:36px">Find</button></div>
+        <div class="note" id="tgFoundLine">Публичные списки MTProto с GitHub; каждый прокси проверяется запросом req_pq к DC2, остаются 3 самых быстрых.</div>
+        <div id="tgFound"></div>
+      </div>
+      <div class="card glass pad gap">
         <h2>Backup proxies</h2>
         <div class="note">Если WebSocket к Telegram не проходит, трафик пойдёт через твой прокси: ссылки tg://proxy (в том числе FakeTLS-секреты ee…) или socks5://адрес:порт.</div>
         <div class="row"><input id="tgUp" class="inp" placeholder="tg://proxy?server=…  или  socks5://host:port" aria-label="Proxy link"></div>
@@ -220,7 +228,7 @@ input[type=range]{accent-color:var(--accent);width:100%}
 const $=s=>document.querySelector(s),$$=s=>Array.from(document.querySelectorAll(s));
 const call=(c,a)=>{try{return Promise.resolve(JSON.parse(window.Android?Android.call(c,a==null?"":String(a)):"null"))}catch(e){return Promise.resolve(null)}};
 window.dpiCall=call;
-let S={},page="home",lastSites="",lastProx="";
+let S={},page="home",lastSites="",lastProx="",lastFound="";
 const pages=["home","sites","tg","log","set"];
 function go(p){
   if(!pages.includes(p))return;page=p;
@@ -266,6 +274,18 @@ function apply(st){
   $("#togBoot").classList.toggle("on",!!st.boot);
   $("#tgLink").textContent=st.tgLink||(st.tgError?("Ошибка: "+st.tgError):"Starts with the bypass");
   $("#tgStats").textContent=st.tgStats||"";
+  const tf=st.tgFound||[];
+  $("#tgFindBtn").disabled=!!st.tgSearching;$("#tgFindBtn").textContent=st.tgSearching?"Searching…":"Find";
+  if(st.tgSearching)$("#tgFoundLine").textContent="Проверяю публичные прокси…";
+  else if(st.tgFoundAt)$("#tgFoundLine").textContent="Updated "+st.tgFoundAt+" · Use — запасной маршрут, Open — добавить прямо в Telegram";
+  const fj=JSON.stringify(tf);
+  if(fj!==lastFound){lastFound=fj;$("#tgFound").replaceChildren(...tf.map(f=>{
+    const r=document.createElement("div");r.className="fr";
+    const n=document.createElement("div");n.className="nm";n.textContent=f.name;const k=document.createElement("div");k.className="k";k.textContent=f.kind;n.appendChild(k);r.appendChild(n);
+    const b=document.createElement("span");b.className="bd ok";b.textContent=f.ms+" ms";r.appendChild(b);
+    const u=document.createElement("button");u.className="btn";u.textContent="Use";u.onclick=()=>call("tgUse",f.link);r.appendChild(u);
+    const o=document.createElement("button");o.className="btn pri";o.textContent="Open";o.onclick=()=>call("tgOpenLink",f.link);r.appendChild(o);
+    return r}))}
   const pj=JSON.stringify(st.tgProxies||[]);
   if(pj!==lastProx){lastProx=pj;const l=st.tgProxies||[];$("#tgProxies").textContent=l.length?l.join("\n"):"—"}
   if(document.activeElement!==$("#tgWorker"))$("#tgWorker").value=st.tgWorker||"";

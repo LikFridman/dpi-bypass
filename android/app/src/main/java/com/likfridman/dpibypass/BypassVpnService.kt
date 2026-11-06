@@ -120,6 +120,7 @@ class BypassVpnService : VpnService() {
             Engine.starting = false
             Engine.log("Обход работает: ${st.name}")
             TgProxy.start(this, Engine.PORT)
+            TgProxy.discoverAsync(this, false)
             watch(st)
         } catch (e: Exception) {
             Report.error("сбой: ${e.javaClass.simpleName}: ${e.message}")
@@ -196,6 +197,7 @@ class BypassVpnService : VpnService() {
                 fails = 0
                 continue
             }
+            if (System.currentTimeMillis() - TgProxy.foundAt > 30 * 60_000L) TgProxy.discoverAsync(this, false)
             for (i in 0 until 60) {
                 if (stopping) return
                 if (proxy?.isAlive != true) {

@@ -13,13 +13,18 @@ import (
 // первый запрос протокола (req_pq_multi). Если сервер Telegram ответил (resPQ),
 // значит связь с Telegram через прокси работает. Возвращает время ответа.
 func Check(proxyAddr string, secret []byte, dc int) (time.Duration, error) {
+	return CheckTimeout(proxyAddr, secret, dc, 20*time.Second)
+}
+
+// CheckTimeout - то же, что Check, с общим ограничением по времени.
+func CheckTimeout(proxyAddr string, secret []byte, dc int, timeout time.Duration) (time.Duration, error) {
 	start := time.Now()
 	c, err := net.DialTimeout("tcp", proxyAddr, 3*time.Second)
 	if err != nil {
 		return 0, err
 	}
 	defer c.Close()
-	c.SetDeadline(time.Now().Add(20 * time.Second))
+	c.SetDeadline(time.Now().Add(timeout))
 
 	rnd := make([]byte, tgHandshakeLen)
 	for {

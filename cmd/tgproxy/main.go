@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -29,9 +30,18 @@ func main() {
 	socks := flag.String("socks", "", "SOCKS5 обхода DPI (byedpi), например 127.0.0.1:1080")
 	worker := flag.String("worker", "", "свой Cloudflare Worker")
 	check := flag.String("check", "", "проверить уже запущенный прокси по этому адресу и выйти")
-	var ups multi
+	discover := flag.Bool("discover", false, "найти и проверить публичные MTProto-прокси, вывести лучшие и выйти")
+	want := flag.Int("want", 3, "сколько лучших прокси вывести (-discover)")
+	var ups, srcs multi
 	flag.Var(&ups, "up", "внешний прокси: tg://proxy?... или socks5://host:port (можно несколько)")
+	flag.Var(&srcs, "src", "адрес списка прокси для -discover (можно несколько)")
 	flag.Parse()
+	setupResolver()
+
+	if *discover {
+		runDiscover(srcs, *socks, *want)
+		return
+	}
 
 	secret, err := hex.DecodeString(*secretHex)
 	if err != nil || len(secret) != 16 {
@@ -48,21 +58,6 @@ func main() {
 		fmt.Printf("CHECK OK %d\n", d.Milliseconds())
 		return
 	}
-
-	// на Android нет /etc/resolv.conf - спрашиваем DNS напрямую
-	dialer := &net.Dialer{Timeout: 3 * time.Second}
-	servers := []string{"1.1.1.1:53", "8.8.8.8:53", "77.88.8.8:53"}
-	net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
-		var last error
-		for _, s := range servers {
-			c, err := dialer.DialContext(ctx, network, s)
-			if err == nil {
-				return c, nil
-			}
-			last = err
-		}
-		return nil, last
-	}}
 
 	px := &tg.TGProxy{
 		Secret: secret,
@@ -115,4 +110,48 @@ func main() {
 			}
 		}
 	}
+}
+
+// на Android нет /etc/resolv.conf - спрашиваем DNS напрямую
+func setupResolver() {
+	dialer := &net.Dialer{Timeout: 3 * time.Second}
+	servers := []string{"1.1.1.1:53", "8.8.8.8:53", "77.88.8.8:53"}
+	net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+		var last error
+		for _, s := range servers {
+			c, err := dialer.DialContext(ctx, network, s)
+			if err == nil {
+				return c, nil
+			}
+			last = err
+		}
+		return nil, last
+	}}
+}
+
+// runDiscover: списки скачиваются напрямую, а если не вышло - через обход (byedpi)
+func runDiscover(srcs []string, socks string, want int) {
+	if len(srcs) == 0 {
+		srcs = tg.DefaultSources
+	}
+	logf := func(format string, a ...any) { fmt.Println("LOG " + fmt.Sprintf(format, a...)) }
+	cl := &http.Client{Timeout: 12 * time.Second}
+	cands := tg.FetchCandidates(srcs, cl, logf)
+	if len(cands) == 0 && socks != "" {
+		cl.Transport = &http.Transport{DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return tg.SocksDial(socks, addr)
+		}}
+		cands = tg.FetchCandidates(srcs, cl, logf)
+	}
+	if len(cands) > 300 {
+		cands = cands[:300]
+	}
+	fmt.Printf("LOG Telegram: проверяю %d публичных прокси\n", len(cands))
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	for _, f := range tg.Discover(ctx, cands, want, logf) {
+		b, _ := json.Marshal(f)
+		fmt.Printf("FOUND %s\n", b)
+	}
+	fmt.Println("DONE")
 }

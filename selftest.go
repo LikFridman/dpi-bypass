@@ -3,9 +3,11 @@
 package main
 
 import (
+	"context"
 	"dpibypass/tg"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -89,6 +91,20 @@ func selftest() int {
 			say("[!] Telegram через прокси: %v (не критично)", cerr)
 		}
 		px.Close()
+	}
+	// поиск публичных прокси Telegram (не критично: списки и прокси чужие)
+	cands := tg.FetchCandidates(tg.DefaultSources, &http.Client{Timeout: 12 * time.Second}, func(f string, a ...any) { say("      "+f, a...) })
+	if len(cands) > 300 {
+		cands = cands[:300]
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	found := tg.Discover(ctx, cands, 3, func(f string, a ...any) { say("      "+f, a...) })
+	cancel()
+	for _, f := range found {
+		say("[+] публичный прокси %s %s - %d мс", f.Kind, f.Name, f.Ms)
+	}
+	if len(found) == 0 {
+		say("[!] рабочих публичных прокси не найдено (не критично), кандидатов %d", len(cands))
 	}
 	if b, err := json.Marshal(buildReport("test")); err == nil {
 		check("отчёт собирается", len(b) > 500, fmt.Sprintf("%d байт", len(b)))

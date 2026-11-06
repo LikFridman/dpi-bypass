@@ -2,6 +2,7 @@ package tg
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -46,10 +47,19 @@ func TestParseUpstream(t *testing.T) {
 func fakeMTProxy(t *testing.T, key []byte, fakeTLS bool, gotDC chan<- int16) net.Listener {
 	ln, _ := net.Listen("tcp", "127.0.0.1:0")
 	go func() {
-		s, err := ln.Accept()
-		if err != nil {
-			return
+		for {
+			s, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go serveFakeMTProxy(t, s, key, fakeTLS, gotDC)
 		}
+	}()
+	return ln
+}
+
+func serveFakeMTProxy(t *testing.T, s net.Conn, key []byte, fakeTLS bool, gotDC chan<- int16) {
+	{
 		defer s.Close()
 		var r io.Reader = s
 		var w io.Writer = s
@@ -105,7 +115,10 @@ func fakeMTProxy(t *testing.T, key []byte, fakeTLS bool, gotDC chan<- int16) net
 		}
 		dec := ctrStream(withSecret(init[8:40], key), init[40:56])
 		plain := xorBytes(dec, init)
-		gotDC <- int16(binary.LittleEndian.Uint16(plain[60:62]))
+		select {
+		case gotDC <- int16(binary.LittleEndian.Uint16(plain[60:62])):
+		default:
+		}
 		rev := reversed(init[8:56])
 		enc := ctrStream(withSecret(rev[:32], key), rev[32:48])
 		buf := make([]byte, 4096)
@@ -114,10 +127,19 @@ func fakeMTProxy(t *testing.T, key []byte, fakeTLS bool, gotDC chan<- int16) net
 			if err != nil {
 				return
 			}
-			w.Write(xorBytes(enc, xorBytes(dec, buf[:n])))
+			plain := xorBytes(dec, buf[:n])
+			if len(plain) >= 44 && binary.LittleEndian.Uint32(plain[24:28]) == 0xbe7e8ef1 {
+				// req_pq_multi от Check - отвечаем resPQ с тем же nonce
+				resp := make([]byte, 4+52)
+				binary.LittleEndian.PutUint32(resp, 52)
+				binary.LittleEndian.PutUint32(resp[4+20:], 0x05162463)
+				copy(resp[4+24:4+40], plain[28:44])
+				w.Write(xorBytes(enc, resp))
+				continue
+			}
+			w.Write(xorBytes(enc, plain))
 		}
-	}()
-	return ln
+	}
 }
 
 func TestUpstreamMTProxy(t *testing.T) {
@@ -206,5 +228,51 @@ func TestCheckLocal(t *testing.T) {
 	defer px.Close()
 	if _, err := Check(px.Addr(), secret, 2); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDiscover(t *testing.T) {
+	var cands []Upstream
+	for i := 0; i < 3; i++ {
+		key := make([]byte, 16)
+		rand.Read(key)
+		ln := fakeMTProxy(t, key, i == 2, make(chan int16, 1))
+		defer ln.Close()
+		link := "tg://proxy?server=127.0.0.1&port=" + portOf(ln) + "&secret=dd" + hex.EncodeToString(key)
+		if i == 2 {
+			link = "https://t.me/proxy?server=127.0.0.1&port=" + portOf(ln) + "&secret=ee" + hex.EncodeToString(key) + hex.EncodeToString([]byte("www.google.com"))
+		}
+		u, err := ParseUpstream(link)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cands = append(cands, u)
+	}
+	// мёртвый прокси
+	dead, _ := ParseUpstream("tg://proxy?server=127.0.0.1&port=1&secret=dd00112233445566778899aabbccddeeff")
+	cands = append(cands, dead)
+	got := Discover(context.Background(), cands, 3, nil)
+	if len(got) != 3 {
+		t.Fatalf("найдено %d из 3: %+v", len(got), got)
+	}
+	for _, f := range got {
+		if _, err := ParseUpstream(f.Link); err != nil {
+			t.Fatalf("ссылка %s: %v", f.Link, err)
+		}
+	}
+}
+
+func TestExtractLinks(t *testing.T) {
+	txt := "x tg://proxy?server=a.b&port=443&secret=eeNEgYdJvXrFGRMCIMJdCQ y\nhttps://t.me/proxy?server=c.d&port=1&secret=3RBEYoISSb16xRkTAiDCXQk%3D\n"
+	l := ExtractLinks(txt)
+	if len(l) != 2 {
+		t.Fatalf("%v", l)
+	}
+	u, err := ParseUpstream(l[1])
+	if err != nil || u.Kind != "mtproto" || len(u.Key) != 16 {
+		t.Fatalf("dd base64: %+v %v", u, err)
+	}
+	if u, err := ParseUpstream(l[0]); err != nil || len(u.Key) != 16 {
+		t.Fatalf("plain base64: %+v %v", u, err)
 	}
 }

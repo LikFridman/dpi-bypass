@@ -31,6 +31,11 @@ object Store {
     fun reportUrl(ctx: Context): String = p(ctx).getString("reportUrl", "") ?: ""
     fun setReportUrl(ctx: Context, u: String) = p(ctx).edit().putString("reportUrl", u).apply()
 
+    /** Списки публичных прокси Telegram из update.json (пусто - встроенные). */
+    fun tgSources(ctx: Context): List<String> =
+        (p(ctx).getString("tgSources", "") ?: "").lines().filter { it.startsWith("https://") }
+    fun setTgSources(ctx: Context, l: List<String>) = p(ctx).edit().putString("tgSources", l.joinToString("\n")).apply()
+
     /** Постоянный секрет локального прокси Telegram (чтобы прокси не добавлять заново). */
     fun tgSecret(ctx: Context): String {
         p(ctx).getString("tgSecret", null)?.let { if (it.length == 32) return it }

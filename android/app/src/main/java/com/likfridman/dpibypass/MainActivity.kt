@@ -263,6 +263,21 @@ class MainActivity : Activity() {
                     }.start()
                     null
                 }
+                "tgFind" -> { TgProxy.discoverAsync(this@MainActivity, true) { toast(it) }; null }
+                "tgUse" -> {
+                    if (arg.startsWith("tg://proxy?")) {
+                        Store.setTgProxies(this@MainActivity, (Store.tgProxies(this@MainActivity) + arg).distinct())
+                        toast("Добавлен в запасные прокси")
+                        TgProxy.restartIfRunning(this@MainActivity)
+                    }
+                    null
+                }
+                "tgOpenLink" -> {
+                    if (arg.startsWith("tg://proxy?")) ui.post {
+                        try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(arg))) } catch (e: Exception) { toast("Telegram не установлен") }
+                    }
+                    null
+                }
                 "tgClearProxies" -> {
                     Store.setTgProxies(this@MainActivity, emptyList())
                     toast("Запасные прокси удалены")

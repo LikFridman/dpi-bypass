@@ -293,6 +293,9 @@ object Engine {
         o.put("tgProxies", JSONArray(Store.tgProxies(ctx)))
         o.put("tgWorker", Store.tgWorker(ctx))
         o.put("needConsent", !Store.consentOK(ctx))
+        o.put("tgFound", TgProxy.found)
+        o.put("tgSearching", TgProxy.isSearching)
+        o.put("tgFoundAt", if (TgProxy.foundAt > 0) ago(TgProxy.foundAt) else "")
         return o
     }
 

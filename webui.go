@@ -7,6 +7,7 @@ package main
 // откроется простое окно из gui.go.
 
 import (
+	"dpibypass/tg"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -59,6 +60,9 @@ type uiState struct {
 	TgLink      string      `json:"tgLink"`
 	TgStats     string      `json:"tgStats"`
 	TgProxies   []string    `json:"tgProxies"`
+	TgFound     []tg.Found  `json:"tgFound"`
+	TgFoundAt   string      `json:"tgFoundAt"`
+	TgSearch    bool        `json:"tgSearching"`
 	NeedConsent bool        `json:"needConsent"`
 	Agreement   string      `json:"agreement,omitempty"`
 	Autostart   bool        `json:"autostart"`
@@ -350,6 +354,11 @@ func buildUIState() uiState {
 	if s, ok := statusText.Load().(string); ok {
 		st.Status = s
 	}
+	found, at := tgFoundList()
+	st.TgFound, st.TgSearch = found, tgSearching.Load()
+	if !at.IsZero() {
+		st.TgFoundAt = ago(at)
+	}
 	if v, ok := infoISP.Load().(string); ok {
 		st.ISP = v
 	}
@@ -559,6 +568,18 @@ func webCall(cmd, arg string) (any, error) {
 	case "report":
 		go sendReport("manual")
 		uiToast("Собираю отчёт...")
+	case "tgFind":
+		tgDiscoverAsync(true)
+	case "tgUse":
+		if u, err := tgAddUpstream(arg); err != nil {
+			uiToast("Ссылка не подходит: " + err.Error())
+		} else {
+			uiToast("Добавлен в запасные: " + u.String())
+		}
+	case "tgOpenLink":
+		if strings.HasPrefix(arg, "tg://proxy?") {
+			openURL(arg)
+		}
 	case "tgClearProxies":
 		os.Remove(tgProxiesFile())
 		uiToast("Запасные прокси удалены")
