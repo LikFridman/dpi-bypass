@@ -127,7 +127,7 @@ th{color:var(--dim);font-weight:600;font-size:12px}tr.r{cursor:pointer}tr.r:hove
 @media(max-width:700px){.h{display:none}}
 </style></head><body><header><b>dpi-bypass · отчёты</b>
 <input id="q" placeholder="IP, провайдер, номер, сайт"><select id="pf"><option value="">все</option><option>windows</option><option>android</option></select>
-<select id="tr"><option value="">любой повод</option><option>connect</option><option>error</option><option>manual</option></select><button id="go">Найти</button></header>
+<select id="tr"><option value="">любой повод</option><option>launch</option><option>connect</option><option>error</option><option>manual</option></select><button id="go">Найти</button></header>
 <main><div id="stats"></div><table><thead><tr><th>Время</th><th>Номер</th><th>Платформа</th><th class="h">IP / провайдер</th><th>Сайты</th><th>Итог</th></tr></thead><tbody id="rows"></tbody></table><button id="more" style="margin-top:12px">Ещё</button></main>
 <script>
 const key=new URLSearchParams(location.search).get("key");let last=0;

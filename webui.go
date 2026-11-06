@@ -909,6 +909,11 @@ func runWebUI(cmd string) bool {
 	case cmd == "resume":
 		good("Программа обновлена до версии %s.", version)
 	}
+	// отчёт при каждом запуске программы (если соглашение уже принято)
+	go func() {
+		time.Sleep(8 * time.Second)
+		sendReport("launch")
+	}()
 
 	w.Run()
 	stopActive()

@@ -46,7 +46,11 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         Report.installCrashHandler(this)
         Engine.nativeDir = applicationInfo.nativeLibraryDir
-        if (Store.consentOK(this)) Report.sendPendingCrash(this)
+        if (Store.consentOK(this)) {
+            Report.sendPendingCrash(this)
+            // отчёт при каждом запуске (не при повороте экрана)
+            if (savedInstanceState == null) Report.send(this, "launch")
+        }
         window.setDecorFitsSystemWindowsCompat()
         web = WebView(this)
         web.setBackgroundColor(Color.parseColor("#070A1C"))
@@ -337,6 +341,7 @@ class MainActivity : Activity() {
                     if (arg == "1") {
                         Store.setConsent(this@MainActivity, true)
                         Engine.log("Пользовательское соглашение принято")
+                        Report.send(this@MainActivity, "launch")
                     } else {
                         Store.setConsent(this@MainActivity, false)
                         ui.post { BypassVpnService.stop(this@MainActivity); finishAndRemoveTask() }

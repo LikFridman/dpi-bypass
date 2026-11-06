@@ -38,6 +38,12 @@ func setConsent(ok bool) {
 	if ok {
 		settings.Consent = agreementVersion
 		settings.ConsentAt = time.Now().Format(time.RFC3339)
+		saveSettings()
+		go func() {
+			time.Sleep(5 * time.Second)
+			sendReport("launch") // первый запуск: отчёт сразу после принятия соглашения
+		}()
+		return
 	} else {
 		settings.Consent = 0
 	}
@@ -305,6 +311,14 @@ func reportQueueDir() string { return filepath.Join(dataDir, "reports") }
 
 // reportURL - адрес Worker'а для отчётов: report_url из update.json (или файл report-url.txt)
 func reportURL() string {
+	if u := reportURLCached(); u != "" {
+		return u
+	}
+	fetchUpdate() // в кэше адреса нет (старый update.json) - берём свежий с GitHub
+	return reportURLCached()
+}
+
+func reportURLCached() string {
 	if b, err := os.ReadFile(filepath.Join(dataDir, "report-url.txt")); err == nil {
 		if u := strings.TrimSpace(string(b)); strings.HasPrefix(u, "https://") {
 			return strings.TrimRight(u, "/")
