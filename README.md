@@ -1,6 +1,19 @@
 # dpi-bypass
 
-Локальный обход DPI-блокировок для Windows. Работает без VPN и своего сервера. Он сам подбирает рабочий способ обхода, умеет работать вместе с VPN-клиентами (Happ и другими) и пускает Telegram Desktop через WebSocket.
+<p align="center">
+  <a href="https://github.com/LikFridman/dpi-bypass/raw/main/dpi-bypass.exe"><img alt="Скачать для Windows" src="https://img.shields.io/badge/%E2%AC%87%20%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F-Windows-2f7bff?style=for-the-badge&logo=windows&logoColor=white"></a>
+  &nbsp;
+  <a href="https://github.com/LikFridman/dpi-bypass/raw/main/dpi-bypass.apk"><img alt="Скачать для Android" src="https://img.shields.io/badge/%E2%AC%87%20%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F-Android-34a853?style=for-the-badge&logo=android&logoColor=white"></a>
+</p>
+
+<p align="center">
+  <b><a href="https://github.com/LikFridman/dpi-bypass/raw/main/dpi-bypass.exe">⬇ Windows 10/11 — dpi-bypass.exe</a></b>
+  &nbsp;·&nbsp;
+  <b><a href="https://github.com/LikFridman/dpi-bypass/raw/main/dpi-bypass.apk">⬇ Android 8+ — dpi-bypass.apk</a></b>
+  <br><sub><a href="#windows">как установить на Windows</a> · <a href="#android">как установить на Android</a></sub>
+</p>
+
+Локальный обход DPI-блокировок для Windows и Android. Работает без VPN и своего сервера. Он сам подбирает рабочий способ обхода, умеет работать вместе с VPN-клиентами (Happ и другими) и пускает Telegram Desktop через WebSocket.
 
 Движок для пакетов — [winws из проекта zapret](https://github.com/bol-van/zapret-win-bundle) (автор bol-van). dpi-bypass — обёртка над ним: она проводит диагностику, перебирает стратегии и следит, чтобы обход продолжал работать.
 
@@ -37,7 +50,26 @@
   3. Напрямую к дата-центру Telegram.
   4. Через локальный SOCKS5 найденного VPN-клиента (например, Happ). В этом случае через VPN идёт только Telegram, а остальное — через обход.
 
-## Скачать и запустить
+## Android
+
+**[⬇ Скачать dpi-bypass.apk](https://github.com/LikFridman/dpi-bypass/raw/main/dpi-bypass.apk)** (Android 8 и новее)
+
+1. Скачай APK на телефон и открой его. Если Android спросит, разреши браузеру «Установку неизвестных приложений».
+2. Открой dpi-bypass и нажми переключатель. Android спросит разрешение на VPN, нажми «ОК».
+3. Программа проверит сайты и сама подберёт стратегию. Готово: в строке состояния появится значок ключа.
+
+На Android обход устроен иначе, чем на Windows. Приложение поднимает локальный VPN: трафик телефона идёт в туннель и через встроенный движок [byedpi](https://github.com/hufrea/byedpi) уходит в интернет напрямую. Сервер VPN не нужен, root тоже. Туннель в прокси переводит [hev-socks5-tunnel](https://github.com/heiher/hev-socks5-tunnel).
+
+- Есть плитка «Обход DPI» в шторке: включать и выключать обход одним касанием.
+- Обход может включаться сам после перезагрузки телефона, а в настройках Android его можно сделать «постоянным VPN».
+- Свой фон, тот же стиль «Ночь», что и на Windows.
+- На Android одновременно работает только один VPN: пока обход включён, он заменяет другой VPN (например, Happ). Сайты, заблокированные по IP, без настоящего VPN не откроются.
+
+APK тоже собирается на GitHub Actions. Перед публикацией его проверяют в эмуляторе Android 14: запускаются все стратегии, сайт открывается через движок, поднимается VPN-туннель.
+
+<p align="center"><img src="docs/screens/android-home.png" width="230"> <img src="docs/screens/android-sites.png" width="230"> <img src="docs/screens/android-set.png" width="230"></p>
+
+## Windows
 
 **[⬇ Скачать dpi-bypass.exe](https://github.com/LikFridman/dpi-bypass/raw/main/dpi-bypass.exe)** (Windows 10/11, x64)
 
@@ -116,6 +148,8 @@ go build -ldflags "-s -w" -o dpi-bypass.exe .
 ## Благодарности
 
 - [bol-van/zapret](https://github.com/bol-van/zapret) — winws и стратегии обхода.
+- [hufrea/byedpi](https://github.com/hufrea/byedpi) — движок обхода DPI в Android-версии (MIT).
+- [heiher/hev-socks5-tunnel](https://github.com/heiher/hev-socks5-tunnel) — туннель VPN → SOCKS в Android-версии (MIT).
 - [Flowseal/tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy) — идея MTProto → WebSocket для Telegram (здесь своя реализация на Go).
 
 Проект для личного использования. Ты сам отвечаешь за соблюдение законов своей страны.

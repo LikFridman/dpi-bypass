@@ -16,7 +16,14 @@ object SelfTest {
 
     fun pageReport(json: String) { page = json }
 
-    fun run(a: Activity) = Thread {
+    private val started = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    fun run(a: Activity) {
+        if (!started.compareAndSet(false, true)) return // окно могло пересоздаться - проверка одна
+        thread(a)
+    }
+
+    private fun thread(a: Activity) = Thread {
         val out = StringBuilder()
         var failed = 0
         fun check(name: String, ok: Boolean, detail: String = "") {

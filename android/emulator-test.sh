@@ -10,7 +10,11 @@ adb shell am start -n $PKG/.MainActivity --ez selftest true
 for i in $(seq 1 90); do adb logcat -d -s DPI_SELFTEST:I | grep -q "RESULT" && break; sleep 2; done
 adb logcat -d -s DPI_SELFTEST:I dpi-bypass:I | tee android-selftest.txt
 # запрос из оболочки эмулятора идёт через туннель обхода (оболочка не исключена из VPN)
-adb shell 'printf "GET / HTTP/1.0\r\nHost: example.com\r\n\r\n" | toybox nc -w 15 example.com 80 | head -1' | tee -a android-selftest.txt
+sleep 5
+echo "--- запросы из оболочки эмулятора (идут через туннель обхода) ---" | tee -a android-selftest.txt
+adb shell 'which nc toybox; printf "GET / HTTP/1.0\r\nHost: one.one.one.one\r\n\r\n" | nc -w 15 1.1.1.1 80 | head -1' 2>&1 | tee -a android-selftest.txt
+adb shell 'printf "GET / HTTP/1.0\r\nHost: example.com\r\n\r\n" | nc -w 15 example.com 80 | head -1' 2>&1 | tee -a android-selftest.txt
+adb shell dumpsys connectivity | grep -i "VPN" | head -3 | tee -a android-selftest.txt
 mkdir -p docs/screens
 sleep 4
 adb exec-out screencap -p > docs/screens/android-home.png
