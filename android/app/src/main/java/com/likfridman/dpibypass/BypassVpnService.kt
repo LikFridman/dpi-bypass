@@ -150,8 +150,13 @@ class BypassVpnService : VpnService() {
             .setMtu(8500)
             .addAddress("198.18.0.1", 32)
             .addRoute("0.0.0.0", 0)
-            .addDnsServer("1.1.1.1")
-            .addDnsServer("8.8.8.8")
+        if (Store.doh(this)) {
+            // адрес DNS внутри туннеля: на нём нет DoT (853), поэтому «Частный DNS» в автоматическом режиме
+            // не уводит запросы мимо нас, и все они (UDP 53) отвечаются выбранным сервером DoH
+            b.addDnsServer("198.18.0.2")
+        } else {
+            b.addDnsServer("1.1.1.1").addDnsServer("8.8.8.8")
+        }
         runCatching { b.addAddress("fc00::1", 128).addRoute("::", 0) }
         // само приложение (и byedpi внутри него) идёт мимо туннеля, иначе трафик зациклится
         runCatching { b.addDisallowedApplication(packageName) }

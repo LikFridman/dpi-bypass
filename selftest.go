@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -111,6 +112,32 @@ func selftest() int {
 			check("локальный DNS-сервер через DoH", e == nil && len(a) > 0, fmt.Sprint(a, e))
 		}
 	}
+	// зашифрованный DNS целиком, как при включённом обходе: адаптеры переключаются на 127.0.0.1,
+	// системный DNS (как у браузера) отвечает через DoH, после выключения настройки возвращаются
+	{
+		before := netSignature()
+		settings.NoDoH, runMode = false, modeNoVPN
+		dohStart()
+		dohMu.Lock()
+		act, res := dohActive, dohRes
+		dohMu.Unlock()
+		check("зашифрованный DNS включился (адаптеры на 127.0.0.1)", act, "")
+		if act && res != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			addrs, e := net.DefaultResolver.LookupHost(ctx, "selftest-"+fmt.Sprint(time.Now().Unix()%100000)+".discord.com")
+			_ = addrs
+			a2, e2 := net.DefaultResolver.LookupHost(ctx, "www.youtube.com")
+			cancel()
+			res.Stats.Lock()
+			q := res.Stats.Queries
+			res.Stats.Unlock()
+			check("системный DNS отвечает через DoH", q > 0 && e2 == nil && len(a2) > 0, fmt.Sprintf("запросов DoH %d, youtube %v %v (первый: %v)", q, a2, e2, e))
+		}
+		dohStop()
+		_, berr := os.Stat(dnsBackupPath())
+		check("DNS адаптеров вернулся как был", os.IsNotExist(berr), before)
+	}
+
 	px := &tg.TGProxy{Secret: make([]byte, 16)}
 	err = px.Listen("127.0.0.1:0")
 	check("прокси Telegram слушает порт", err == nil, fmt.Sprint(err))

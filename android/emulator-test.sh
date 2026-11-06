@@ -7,7 +7,13 @@ adb shell appops set $PKG ACTIVATE_VPN allow
 adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS || true
 adb logcat -c
 adb shell am start -n $PKG/.MainActivity --ez selftest true
-for i in $(seq 1 420); do adb logcat -d -s DPI_SELFTEST:I | grep -q "RESULT" && break; sleep 2; done
+DOMS="wikipedia.org github.com example.com cloudflare.com mozilla.org kernel.org python.org golang.org"
+for i in $(seq 1 420); do
+  adb logcat -d -s DPI_SELFTEST:I | grep -q "RESULT" && break
+  # запросы DNS из оболочки (идут через VPN-туннель): маршрутизатор должен ответить на них через DoH
+  if [ $((i % 5)) -eq 0 ]; then d=$(echo $DOMS | cut -d' ' -f$(( (i/5) % 8 + 1 ))); adb shell "ping -c1 -W2 t$i.$d >/dev/null 2>&1; ping -c1 -W2 $d >/dev/null 2>&1" || true; fi
+  sleep 2
+done
 adb logcat -d -s DPI_SELFTEST:I dpi-bypass:I | tee android-selftest.txt
 # падения приложения и процесса страницы
 adb logcat -d -b crash | tee -a android-selftest.txt
