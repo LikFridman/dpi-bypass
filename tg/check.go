@@ -77,3 +77,21 @@ func CheckTimeout(proxyAddr string, secret []byte, dc int, timeout time.Duration
 	}
 	return time.Since(start), nil
 }
+
+// CheckDC проверяет Telegram так же, как подключается приложение: obfuscated2 напрямую
+// к серверу DC (через dial - например, через SOCKS обхода) и запрос req_pq.
+func CheckDC(dial func(addr string) (net.Conn, error), dc int, timeout time.Duration) (time.Duration, error) {
+	secret := make([]byte, 16)
+	rand.Read(secret)
+	px := &TGProxy{Secret: secret}
+	route := TGRoute{Name: "DC", TCP: func(d int) (net.Conn, string, error) {
+		c, err := dial(tgDCAddr(d))
+		return c, "", err
+	}}
+	px.Routes = func() []TGRoute { return []TGRoute{route} }
+	if err := px.Listen("127.0.0.1:0"); err != nil {
+		return 0, err
+	}
+	defer px.Close()
+	return CheckTimeout(px.Addr(), secret, dc, timeout)
+}

@@ -43,6 +43,7 @@ func main() {
 	socks := flag.String("socks", "", "SOCKS5 обхода DPI (byedpi), например 127.0.0.1:1080")
 	worker := flag.String("worker", "", "свой Cloudflare Worker")
 	check := flag.String("check", "", "проверить уже запущенный прокси по этому адресу и выйти")
+	checkDC := flag.Bool("check-dc", false, "проверить Telegram как приложение: MTProto напрямую к DC2 (через -socks, если задан) и выйти")
 	checkWS := flag.Bool("check-ws", false, "проверить маршрут WebSocket к web.telegram.org (через -socks, если задан) и выйти")
 	discover := flag.Bool("discover", false, "найти и проверить публичные MTProto-прокси, вывести лучшие и выйти")
 	want := flag.Int("want", 3, "сколько лучших прокси вывести (-discover)")
@@ -52,6 +53,19 @@ func main() {
 	flag.Parse()
 	setupResolver()
 
+	if *checkDC {
+		dial := func(addr string) (net.Conn, error) { return net.DialTimeout("tcp", addr, 6*time.Second) }
+		if *socks != "" {
+			dial = func(addr string) (net.Conn, error) { return tg.SocksDial(*socks, addr) }
+		}
+		d, err := tg.CheckDC(dial, 2, 10*time.Second)
+		if err != nil {
+			fmt.Printf("CHECK FAIL %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("CHECK OK %d\n", d.Milliseconds())
+		return
+	}
 	if *checkWS {
 		px := &tg.TGProxy{Secret: make([]byte, 16)}
 		r := px.BaseRoutes()[0]

@@ -184,10 +184,39 @@ object Engine {
     fun probeLine(name: String, p: Probe) =
         if (p.ok) "+ $name: ping ${p.label}" else "- $name: ping none · ${p.reason}"
 
+    /** Папка с libtgproxy.so (задаётся при запуске приложения и службы). */
+    @Volatile var nativeDir = ""
+
+    /**
+     * Telegram: приложение ходит не на сайт, а по MTProto прямо к серверам DC.
+     * Проверяем так же (req_pq к DC2 через тот же путь, что и трафик Telegram);
+     * если не вышло - результат проверки сайта web.telegram.org.
+     */
+    private fun probeTelegram(host: String, socksPort: Int?): Probe {
+        val bin = File(nativeDir, "libtgproxy.so")
+        if (nativeDir.isEmpty() || !bin.exists()) return probe(host, socksPort)
+        val cmd = mutableListOf(bin.absolutePath, "-check-dc")
+        if (socksPort != null) cmd += listOf("-socks", "127.0.0.1:$socksPort")
+        val line = runCatching {
+            val p = ProcessBuilder(cmd).redirectErrorStream(true).start()
+            val out = p.inputStream.bufferedReader().readText()
+            p.waitFor(15, TimeUnit.SECONDS)
+            out.lines().lastOrNull { it.startsWith("CHECK ") } ?: ""
+        }.getOrDefault("")
+        if (line.startsWith("CHECK OK ")) {
+            val ms = line.removePrefix("CHECK OK ").trim().toIntOrNull() ?: 0
+            return Probe(true, "ok", "MTProto DC2", ms.coerceAtLeast(1))
+        }
+        val web = probe(host, socksPort)
+        return if (web.ok) web else web.copy(reason = web.reason + "; MTProto: " + line.removePrefix("CHECK FAIL ").ifEmpty { "нет ответа" })
+    }
+
     fun probeAll(socksPort: Int?, list: List<Site> = sites): Map<String, Probe> {
         val pool = Executors.newFixedThreadPool(8)
-        val fut = list.associate { s -> s.name to pool.submit<Probe> { probe(s.host, socksPort) } }
-        val res = fut.mapValues { (_, f) -> runCatching { f.get(20, TimeUnit.SECONDS) }.getOrElse { Probe(false, "dpi", "нет ответа") } }
+        val fut = list.associate { s ->
+            s.name to pool.submit<Probe> { if (s.name == "Telegram") probeTelegram(s.host, socksPort) else probe(s.host, socksPort) }
+        }
+        val res = fut.mapValues { (_, f) -> runCatching { f.get(35, TimeUnit.SECONDS) }.getOrElse { Probe(false, "dpi", "нет ответа") } }
         pool.shutdownNow()
         return res
     }

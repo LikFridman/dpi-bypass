@@ -45,6 +45,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Report.installCrashHandler(this)
+        Engine.nativeDir = applicationInfo.nativeLibraryDir
         if (Store.consentOK(this)) Report.sendPendingCrash(this)
         window.setDecorFitsSystemWindowsCompat()
         web = WebView(this)

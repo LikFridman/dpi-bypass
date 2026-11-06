@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"dpibypass/tg"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -294,6 +295,17 @@ func probeService(s Service) SvcResult {
 	}
 	if !res.OK {
 		res.Ms = 0
+	}
+	// Telegram: приложение ходит не на сайт, а по MTProto прямо к серверам DC -
+	// проверяем так же (req_pq к DC2); пинг - время ответа сервера Telegram
+	if s.Name == "Telegram" {
+		dial := func(addr string) (net.Conn, error) { return newDialer(dialTO).Dial("tcp4", addr) }
+		if d, err := tg.CheckDC(dial, 2, totalTO); err == nil {
+			res.OK, res.Stage, res.Reason = true, StOK, ""
+			res.Ms = int(d.Milliseconds())
+		} else if !res.OK {
+			res.Reason += "; MTProto: " + err.Error()
+		}
 	}
 	return res
 }

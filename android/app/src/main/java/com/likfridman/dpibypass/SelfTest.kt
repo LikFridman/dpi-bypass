@@ -32,6 +32,7 @@ object SelfTest {
             out.appendLine(line)
             Log.i(TAG, line)
         }
+        Engine.nativeDir = a.applicationInfo.nativeLibraryDir
         val bin = Engine.binary(a)
         check("byedpi на месте", bin.exists() && bin.canExecute(), bin.absolutePath)
         for (s in Engine.strategies) {
@@ -52,6 +53,8 @@ object SelfTest {
             }.getOrElse { it.toString() }
             check("Telegram WebSocket ${if (via == null) "напрямую" else "через byedpi"}", out.startsWith("CHECK OK"), out)
         }
+        val tgp = Engine.probeAll(Engine.TEST_PORT, Engine.sites.filter { it.name == "Telegram" })["Telegram"]
+        check("Telegram через byedpi (MTProto к DC2)", tgp?.ok == true, "${tgp?.label} ${tgp?.reason}")
         TgProxy.start(a, Engine.TEST_PORT)
         for (i in 0 until 20) { if (TgProxy.ready) break; Thread.sleep(250) }
         check("прокси Telegram запустился", TgProxy.ready, TgProxy.lastError)
