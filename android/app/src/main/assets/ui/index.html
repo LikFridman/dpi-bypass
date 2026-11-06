@@ -159,7 +159,7 @@ input[type=range]{accent-color:var(--accent);width:100%}
         <div class="ch"><h2>Sites</h2><span class="dim" style="font-size:12px" id="cnt"></span></div>
         <div id="homeSites"></div>
       </div>
-      <div class="row"><button class="btn pri" data-a="pingAll" id="pingBtn">Ping all</button><button class="btn" data-a="reselect">Re-tune</button></div>
+      <div class="row"><button class="btn pri" data-a="pingAll" id="pingBtn">Ping all</button><button class="btn" id="chooseHome">Choose sites</button><button class="btn" data-a="reselect">Re-tune</button></div>
       <div class="card glass pad note">На Android одновременно может работать только один VPN. Пока обход включён, он заменяет другой VPN (например, Happ). Сайты, заблокированные по IP, без настоящего VPN не откроются.</div>
     </section>
 
@@ -289,7 +289,7 @@ function openChoose(start){chStart=start;const def=["YouTube","Discord","Telegra
   $("#chList").replaceChildren(...(S.sites||[]).map(x=>{const l=document.createElement("label");const c=document.createElement("input");c.type="checkbox";c.value=x.name;
     c.checked=S.chosenSet?!!x.chosen:def.includes(x.name);const t=document.createElement("span");t.textContent=x.name;l.append(c,t);return l}));
   $("#choose").classList.add("on")}
-$("#chooseBtn").addEventListener("click",()=>openChoose(false));
+$("#chooseBtn").addEventListener("click",()=>openChoose(false));$("#chooseHome").addEventListener("click",()=>openChoose(false));
 $("#chCancel").addEventListener("click",()=>$("#choose").classList.remove("on"));
 $("#chSave").addEventListener("click",()=>{const v=[...$$("#chList input")].filter(c=>c.checked).map(c=>c.value);
   if(!v.length){toast("Отметь хотя бы один сервис");return}

@@ -215,6 +215,9 @@ body.hasbg{--glass:rgba(12,14,34,.62)}
 .page{filter:none;transform:translateY(8px);transition:opacity .22s var(--ease),transform .28s var(--ease)}
 .page.on{transform:none}
 .page.on .st{animation-duration:.35s}
+/* длинные страницы прокручиваются (раньше нижние блоки Telegram/Settings/Defender были недоступны) */
+#p-tg,#p-set,#p-def,#p-deep{overflow-y:auto;overflow-x:hidden;padding-bottom:18px;scrollbar-width:thin}
+#p-tg>*,#p-set>*,#p-def>*,#p-deep>*{flex-shrink:0}
 .modal,.drop{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(5,7,20,.7)}
 .badge.ok{animation:none;box-shadow:0 8px 24px rgba(34,197,94,.35),inset 0 1px 0 rgba(255,255,255,.5)}
 .prog i{animation:none;background:linear-gradient(90deg,#6f8cff,#a78bfa)}
@@ -282,7 +285,7 @@ body.hasbg{--glass:rgba(12,14,34,.62)}
       </div>
       <div class="grid2 st" style="--i:3">
         <div class="card glass lift" style="display:flex;flex-direction:column;min-height:0">
-          <div class="ch"><h2>Sites</h2><span style="display:flex;gap:10px;align-items:center"><span class="dim" style="font-size:12px" id="sitesCount"></span><button class="btn pri" style="height:28px;padding:0 12px;font-size:12px" data-a="pingAll">Ping all</button></span></div>
+          <div class="ch"><h2>Sites</h2><span style="display:flex;gap:10px;align-items:center"><span class="dim" style="font-size:12px" id="sitesCount"></span><button class="btn" style="height:28px;padding:0 12px;font-size:12px" data-a="choose">Choose</button><button class="btn pri" style="height:28px;padding:0 12px;font-size:12px" data-a="pingAll">Ping all</button></span></div>
           <div class="list" id="homeSites"></div>
         </div>
         <div class="card glass lift" style="display:flex;flex-direction:column;min-height:0">
@@ -295,7 +298,7 @@ body.hasbg{--glass:rgba(12,14,34,.62)}
     <!-- САЙТЫ -->
     <section class="page" id="p-sites" aria-label="Сайты">
       <div class="head st" style="--i:0"><h1>Sites</h1>
-        <div class="row"><button class="btn pri" data-a="pingAll">Ping all</button><button class="btn" id="chooseBtn">Choose</button><button class="btn" data-a="tune">New sites</button><button class="btn" data-a="reselect">Re-tune</button><button class="btn" data-a="openSites">Edit list</button></div></div>
+        <div class="row"><button class="btn pri" data-a="pingAll">Ping all</button><button class="btn" data-a="choose">Choose sites</button><button class="btn" data-a="tune">New sites</button><button class="btn" data-a="reselect">Re-tune</button><button class="btn" data-a="openSites">Edit list</button></div></div>
       <div class="dim st" style="--i:1;font-size:13px">Клик по сервису — выбрать стратегию вручную: проверить любую с нагрузкой, закрепить или None (без обхода). Choose — какие сервисы нужны: подбор и Ping all только по ним.</div>
       <div class="card glass st" style="--i:1;flex:1;min-height:0;display:flex;flex-direction:column">
         <div class="r dim" style="font-size:12px"><span class="nm">Site</span><span class="sg">Strategy</span><span style="width:110px;text-align:right">Ping</span></div>
@@ -443,6 +446,7 @@ document.addEventListener("pointerdown",e=>{
 /* ---------- действия ---------- */
 $$("[data-a]").forEach(b=>b.addEventListener("click",()=>{
   const a=b.dataset.a;
+  if(a==="choose")return;
   if(a==="deep")return call("deep",$("#deepIn").value.trim());
   if(a==="tgCopy"){navigator.clipboard&&navigator.clipboard.writeText(S.tgLink||"");toast("Link copied");return}
   if(a==="tgAddProxy"){const v=$("#tgUp").value.trim();if(!v){toast("Вставь ссылку на прокси");return}call("tgAddProxy",v);$("#tgUp").value="";return}
@@ -456,7 +460,7 @@ function openChoose(start){chStart=start;const def=["YouTube","Discord","Telegra
   $("#chList").replaceChildren(...(S.sites||[]).filter(x=>!x.name.includes(".")).map(x=>{const l=document.createElement("label");const c=document.createElement("input");c.type="checkbox";c.value=x.name;
     c.checked=S.chosenSet?!!x.chosen:def.includes(x.name);const t=document.createElement("span");t.textContent=x.name;l.append(c,t);return l}));
   $("#choose").classList.add("on")}
-$("#chooseBtn").addEventListener("click",()=>openChoose(false));
+$$("[data-a=choose]").forEach(b=>b.addEventListener("click",e=>{e.stopPropagation();openChoose(false)}));
 $("#chCancel").addEventListener("click",()=>$("#choose").classList.remove("on"));
 $("#chSave").addEventListener("click",()=>{const v=[...$$("#chList input")].filter(c=>c.checked).map(c=>c.value);
   if(!v.length){toast("Отметь хотя бы один сервис");return}
