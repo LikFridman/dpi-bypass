@@ -443,7 +443,7 @@ window.addEventListener("error",e=>call("jsError",(e.message||"")+" @"+(e.lineno
 go("home");
 call("bgGet").then(applyBg);
 call("ready").then(m=>{if(m)window.__push(m);
-  const e=[];if($$(".page").length!==5)e.push("pages");if($$(".tab").length!==5)e.push("tabs");if(!/^v\d/.test($("#ver").textContent))e.push("version");
+  const e=[];if($$(".page").length!==pages.length)e.push("pages");if($$(".tab").length!==pages.length)e.push("tabs");if(!/^v\d/.test($("#ver").textContent))e.push("version");
   call("selftestDone",JSON.stringify(e));});
 })();
 </script>

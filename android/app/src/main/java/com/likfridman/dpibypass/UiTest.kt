@@ -63,7 +63,7 @@ object UiTest {
         // окно стратегий для сервиса: Test, Use, Auto
         click(".tab[data-p=sites]", "вкладка Sites"); Thread.sleep(800)
         click("#allSites .r.click", "сервис в списке"); Thread.sleep(2000)
-        val rows = js("document.querySelectorAll('#shList .r').length")?.toIntOrNull() ?: 0
+        val rows = js("document.querySelectorAll('#shList .st').length")?.toIntOrNull() ?: 0
         check("окно стратегий открылось", rows > 0, "строк $rows")
         val tested = js("(function(){const b=[...document.querySelectorAll('#shList button')].find(x=>x.textContent==='Test');if(!b)return 'none';b.click();return 'ok'})()")
         check("нажатие: Test у стратегии", tested == "\"ok\"", tested ?: "")
