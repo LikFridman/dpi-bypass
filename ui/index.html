@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -189,35 +189,35 @@ h2{margin:0;font-size:15px;font-weight:700}
 </head>
 <body>
 <div class="bgimg" id="bgimg" aria-hidden="true"></div><div class="bgdim" aria-hidden="true"></div>
-<div class="drop" id="drop">Отпусти картинку — она станет фоном</div>
+<div class="drop" id="drop">Drop the image to set it as background</div>
 <div class="bg" aria-hidden="true"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div></div>
 
 <div class="app">
   <nav class="side glass" aria-label="Разделы">
     <div class="brand">
       <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l8 3v6c0 5-3.4 9.3-8 11-4.6-1.7-8-6-8-11V5z" fill="#6f8cff"/><path d="M7 12h7m-3-3l3 3-3 3" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <div><b>dpi-bypass</b><small id="ver">версия</small></div>
+      <div><b>dpi-bypass</b><small id="ver">v</small></div>
     </div>
     <div class="navlist" id="nav">
       <div class="pill" id="pill"></div>
-      <button class="nv" data-p="home"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M12 3v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>Обход</button>
-      <button class="nv" data-p="sites"><svg width="18" height="18" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18" stroke="currentColor" stroke-width="1.8" fill="none"/></svg>Сайты</button>
-      <button class="nv" data-p="deep"><svg width="18" height="18" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Глубокая проверка<span class="dotn" id="dDeep"></span></button>
+      <button class="nv" data-p="home"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M12 3v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>Bypass</button>
+      <button class="nv" data-p="sites"><svg width="18" height="18" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18" stroke="currentColor" stroke-width="1.8" fill="none"/></svg>Sites</button>
+      <button class="nv" data-p="deep"><svg width="18" height="18" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Deep scan<span class="dotn" id="dDeep"></span></button>
       <button class="nv" data-p="tg"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M21 4L3 11l7 2 2 7z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/></svg>Telegram</button>
-      <button class="nv" data-p="def"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M12 3l8 3v5c0 5-3.4 9-8 10-4.6-1-8-5-8-10V6z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/></svg>Защитник<span class="dotn" id="dDef"></span></button>
-      <button class="nv" data-p="log"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M5 5h14M5 10h14M5 15h10M5 20h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Журнал</button>
+      <button class="nv" data-p="def"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M12 3l8 3v5c0 5-3.4 9-8 10-4.6-1-8-5-8-10V6z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/></svg>Defender<span class="dotn" id="dDef"></span></button>
+      <button class="nv" data-p="log"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M5 5h14M5 10h14M5 15h10M5 20h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Log</button>
     </div>
     <div class="grow"></div>
-    <div class="upd glass" id="updCard"><b id="updTitle">Доступна новая версия</b><p>новые стратегии и исправления</p><button class="btn pri" style="width:100%;justify-content:center" data-a="update">Обновить</button></div>
-    <div class="navlist" id="nav2"><button class="nv" data-p="set"><svg width="18" height="18" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Параметры</button></div>
+    <div class="upd glass" id="updCard"><b id="updTitle">Update available</b><p>новые стратегии и исправления</p><button class="btn pri" style="width:100%;justify-content:center" data-a="update">Update</button></div>
+    <div class="navlist" id="nav2"><button class="nv" data-p="set"><svg width="18" height="18" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Settings</button></div>
   </nav>
 
   <main>
     <!-- ОБХОД -->
     <section class="page" id="p-home" aria-label="Обход">
       <div class="head st" style="--i:0">
-        <h1>Обход</h1>
-        <div class="row"><span class="muted" id="togLbl">Выключено</span><button class="tog" id="mainTog" aria-label="Включить обход"><i></i></button></div>
+        <h1>Bypass</h1>
+        <div class="row"><span class="muted" id="togLbl">Off</span><button class="tog" id="mainTog" aria-label="Включить обход"><i></i></button></div>
       </div>
       <div class="card glass hero st" id="hero" style="--i:1">
         <div class="badge" id="badge">
@@ -226,20 +226,20 @@ h2{margin:0;font-size:15px;font-weight:700}
           <svg id="icBusy" class="hide" width="30" height="30" viewBox="0 0 24 24"><g class="spin" style="transform-origin:12px 12px"><path d="M12 3a9 9 0 1 1-9 9" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round"/></g></svg>
           <svg id="icWarn" class="hide" width="30" height="30" viewBox="0 0 24 24"><path d="M12 7v6M12 16.5v.5" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>
         </div>
-        <div style="flex:1;min-width:0"><div class="t" id="heroT">Обход выключен</div><div class="s" id="heroS">Включи переключателем сверху</div></div>
+        <div style="flex:1;min-width:0"><div class="t" id="heroT">Bypass off</div><div class="s" id="heroS">Выбери режим и включи переключателем сверху</div></div>
         <div class="meta" id="heroMeta"></div>
       </div>
       <div class="modes st" style="--i:2" role="radiogroup" aria-label="Режим">
-        <button class="mode glass" data-mode="1" role="radio"><b>Без VPN</b><span>VPN-клиент закроется, работает только обход</span><i class="chk"><svg width="12" height="12" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></i></button>
-        <button class="mode glass" data-mode="2" role="radio"><b>Вместе с VPN</b><span>VPN не трогаю, Telegram пойдёт через него</span><i class="chk"><svg width="12" height="12" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></i></button>
+        <button class="mode glass" data-mode="1" role="radio"><b>No VPN</b><span>VPN-клиент закроется, работает только обход</span><i class="chk"><svg width="12" height="12" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></i></button>
+        <button class="mode glass" data-mode="2" role="radio"><b>With VPN</b><span>VPN не трогаю, Telegram пойдёт через него</span><i class="chk"><svg width="12" height="12" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></i></button>
       </div>
       <div class="grid2 st" style="--i:3">
         <div class="card glass lift" style="display:flex;flex-direction:column;min-height:0">
-          <div class="ch"><h2>Сайты</h2><span class="dim" style="font-size:12px" id="sitesCount"></span></div>
+          <div class="ch"><h2>Sites</h2><span class="dim" style="font-size:12px" id="sitesCount"></span></div>
           <div class="list" id="homeSites"></div>
         </div>
         <div class="card glass lift" style="display:flex;flex-direction:column;min-height:0">
-          <div class="ch"><h2>Журнал</h2><button class="btn" style="height:28px;padding:0 10px;font-size:12px" data-p2="log">Весь журнал</button></div>
+          <div class="ch"><h2>Log</h2><button class="btn" style="height:28px;padding:0 10px;font-size:12px" data-p2="log">Full log</button></div>
           <div class="log" id="homeLog"></div>
         </div>
       </div>
@@ -247,10 +247,10 @@ h2{margin:0;font-size:15px;font-weight:700}
 
     <!-- САЙТЫ -->
     <section class="page" id="p-sites" aria-label="Сайты">
-      <div class="head st" style="--i:0"><h1>Сайты</h1>
-        <div class="row"><button class="btn" data-a="tune">Новые сайты</button><button class="btn" data-a="reselect">Подобрать заново</button><button class="btn" data-a="openSites">Изменить список</button></div></div>
+      <div class="head st" style="--i:0"><h1>Sites</h1>
+        <div class="row"><button class="btn" data-a="tune">New sites</button><button class="btn" data-a="reselect">Re-tune</button><button class="btn" data-a="openSites">Edit list</button></div></div>
       <div class="card glass st" style="--i:1;flex:1;min-height:0;display:flex;flex-direction:column">
-        <div class="r dim" style="font-size:12px"><span class="nm">Сайт</span><span class="sg">Стратегия</span><span style="width:110px;text-align:right">Состояние</span></div>
+        <div class="r dim" style="font-size:12px"><span class="nm">Site</span><span class="sg">Strategy</span><span style="width:110px;text-align:right">Ping</span></div>
         <div class="list" id="allSites" style="flex:1"></div>
       </div>
       <p class="dim st" style="--i:2;margin:0 4px 4px;font-size:13px">Сайты, которые начали блокироваться и которых нет в списке, обход подхватывает сам, а раз в 30 минут подбирает для каждого свою стратегию.</p>
@@ -258,76 +258,82 @@ h2{margin:0;font-size:15px;font-weight:700}
 
     <!-- ГЛУБОКАЯ ПРОВЕРКА -->
     <section class="page" id="p-deep" aria-label="Глубокая проверка">
-      <div class="head st" style="--i:0"><h1>Глубокая проверка</h1></div>
+      <div class="head st" style="--i:0"><h1>Deep scan</h1></div>
       <div class="card glass pad st" style="--i:1;display:flex;flex-direction:column;gap:14px">
         <div class="muted">Для сайта, который не открывается обычными стратегиями, перебирается около 300 комбинаций параметров. Это занимает 10–30 минут, а найденная комбинация сохраняется только для этого сайта.</div>
-        <div class="row"><label for="deepIn" class="sr" style="position:absolute;left:-9999px">Сайт</label><input id="deepIn" class="inp" placeholder="сайт, например rutracker.org (пусто — все неоткрывшиеся)"><button class="btn pri" data-a="deep" style="height:44px">Начать</button><button class="btn" data-a="stop" style="height:44px">Стоп</button></div>
+        <div class="row"><label for="deepIn" class="sr" style="position:absolute;left:-9999px">Site</label><input id="deepIn" class="inp" placeholder="сайт, например rutracker.org (пусто — все неоткрывшиеся)"><button class="btn pri" data-a="deep" style="height:44px">Start</button><button class="btn" data-a="stop" style="height:44px">Stop</button></div>
         <div class="prog"><i id="progBar"></i></div>
-        <div class="dim" id="progLbl" style="font-size:13px">Не запущено</div>
+        <div class="dim" id="progLbl" style="font-size:13px">Idle</div>
       </div>
-      <div class="card glass st" style="--i:2;flex:1;min-height:0;display:flex;flex-direction:column"><div class="ch"><h2>Ход проверки</h2></div><div class="log" id="deepLog"></div></div>
+      <div class="card glass st" style="--i:2;flex:1;min-height:0;display:flex;flex-direction:column"><div class="ch"><h2>Progress</h2></div><div class="log" id="deepLog"></div></div>
     </section>
 
     <!-- TELEGRAM -->
     <section class="page" id="p-tg" aria-label="Telegram">
       <div class="head st" style="--i:0"><h1>Telegram</h1></div>
       <div class="card glass pad st" style="--i:1;display:flex;flex-direction:column;gap:12px">
-        <h2>Прокси для Telegram Desktop</h2>
-        <div class="code" id="tgLink">Запускается вместе с обходом</div>
-        <div class="row"><button class="btn pri" data-a="tgOpen">Открыть в Telegram</button><button class="btn" data-a="tgCopy">Скопировать ссылку</button></div>
+        <h2>Telegram Desktop proxy</h2>
+        <div class="code" id="tgLink">Starts with the bypass</div>
+        <div class="row"><button class="btn pri" data-a="tgOpen">Open in Telegram</button><button class="btn" data-a="tgCopy">Copy link</button></div>
         <div class="dim" id="tgStats" style="font-size:13px"></div>
       </div>
       <div class="card glass pad st" style="--i:2">
-        <h2 style="margin-bottom:8px">Как идёт трафик</h2>
-        <ol class="steps"><li>WebSocket к web.telegram.org — через обход DPI</li><li>Свой Cloudflare Worker — если IP Telegram заблокированы</li><li>Напрямую к серверам Telegram</li><li>Через SOCKS найденного VPN (режим «вместе с VPN»)</li></ol>
-        <div class="row" style="margin-top:10px"><button class="btn" data-a="openWorker">Инструкция по Cloudflare Worker</button></div>
+        <h2 style="margin-bottom:8px">Routes</h2>
+        <ol class="steps"><li>WebSocket к web.telegram.org — через обход DPI</li><li>Свой Cloudflare Worker — если IP Telegram заблокированы</li><li>Твой запасной прокси (MTProto или SOCKS5)</li><li>Напрямую к серверам Telegram</li><li>Через VPN (режим «With VPN»)</li></ol>
+        <div class="row" style="margin-top:10px"><button class="btn" data-a="openWorker">Cloudflare Worker guide</button></div>
+      </div>
+      <div class="card glass pad st" style="--i:3;display:flex;flex-direction:column;gap:12px">
+        <h2>Backup proxies</h2>
+        <div class="muted">Если ничего выше не проходит, Telegram пойдёт через твой прокси. Подходят ссылки tg://proxy (в том числе FakeTLS-секреты ee…) и socks5://адрес:порт.</div>
+        <div class="row"><label for="tgUp" class="sr" style="position:absolute;left:-9999px">Proxy link</label><input id="tgUp" class="inp" placeholder="tg://proxy?server=…&amp;port=…&amp;secret=…  или  socks5://host:port"><button class="btn pri" data-a="tgAddProxy" style="height:44px">Add</button><button class="btn" data-a="tgClearProxies" style="height:44px">Clear</button></div>
+        <div class="list" id="tgProxies"></div>
       </div>
     </section>
 
     <!-- ЗАЩИТНИК -->
     <section class="page" id="p-def" aria-label="Защитник Windows">
-      <div class="head st" style="--i:0"><h1>Защитник Windows</h1></div>
+      <div class="head st" style="--i:0"><h1>Windows Defender</h1></div>
       <div class="card glass pad st" style="--i:1;display:flex;flex-direction:column;gap:12px">
         <div id="defState" class="muted"></div>
         <div class="muted">Защитник иногда считает winws и драйвер WinDivert опасными: они перехватывают сетевые пакеты. Это ложное срабатывание. Чтобы файлы не удалялись, добавь папку программы в исключения.</div>
         <div class="code" id="defPath"></div>
         <ol class="steps"><li>Скопируй путь кнопкой ниже</li><li>«Защита от вирусов и угроз» → «Управление настройками»</li><li>«Исключения» → «Добавить исключение» → «Папка» → вставь путь</li></ol>
-        <div class="row"><button class="btn" data-a="copyPath">Скопировать путь</button><button class="btn pri" data-a="defSettings">Открыть настройки Защитника</button><button class="btn" data-a="defHistory">Журнал защиты (карантин)</button></div>
+        <div class="row"><button class="btn" data-a="copyPath">Copy path</button><button class="btn pri" data-a="defSettings">Defender settings</button><button class="btn" data-a="defHistory">Protection history</button></div>
       </div>
     </section>
 
     <!-- ЖУРНАЛ -->
     <section class="page" id="p-log" aria-label="Журнал">
-      <div class="head st" style="--i:0"><h1>Журнал</h1><div class="row"><button class="btn" data-a="diag">Диагностика</button><button class="btn" data-a="openLog">Открыть файл</button></div></div>
+      <div class="head st" style="--i:0"><h1>Log</h1><div class="row"><button class="btn" data-a="diag">Diagnostics</button><button class="btn" data-a="openLog">Open file</button></div></div>
       <div class="card glass st" style="--i:1;flex:1;min-height:0;display:flex;flex-direction:column"><div class="log" id="fullLog" style="flex:1;padding-top:14px"></div></div>
     </section>
 
     <!-- ПАРАМЕТРЫ -->
     <section class="page" id="p-set" aria-label="Параметры">
-      <div class="head st" style="--i:0"><h1>Параметры</h1></div>
+      <div class="head st" style="--i:0"><h1>Settings</h1></div>
       <div class="card glass pad st" style="--i:1">
-        <div class="set"><div><b>Запускать вместе с Windows</b><span>обход включится сам при входе в систему, без окна UAC</span></div><button class="tog sm" id="togAuto" aria-label="Запускать вместе с Windows"><i></i></button></div>
-        <div class="set"><div><b>Сворачивать в трей</b><span>при сворачивании и закрытии окно уходит в значок у часов</span></div><button class="tog sm" id="togTray" aria-label="Сворачивать в трей"><i></i></button></div>
+        <div class="set"><div><b>Start with Windows</b><span>обход включится сам при входе в систему, без окна UAC</span></div><button class="tog sm" id="togAuto" aria-label="Запускать вместе с Windows"><i></i></button></div>
+        <div class="set"><div><b>Minimize to tray</b><span>при сворачивании и закрытии окно уходит в значок у часов</span></div><button class="tog sm" id="togTray" aria-label="Сворачивать в трей"><i></i></button></div>
       </div>
       <div class="card glass pad st" style="--i:2">
-        <div class="set"><div style="display:flex;gap:14px;align-items:center"><div class="bgprev" id="bgPrev"></div><div><b>Фон окна</b><span>своя картинка; можно просто перетащить её в окно</span></div></div>
-          <div class="row"><input type="file" id="bgFile" accept="image/*" style="display:none"><button class="btn" id="bgPick">Выбрать картинку</button><button class="btn" id="bgClear">Убрать</button></div></div>
-        <div class="set"><div><b>Затемнение фона</b><span id="dimLbl">45%</span></div><input type="range" id="bgDim" min="0" max="90" value="45" aria-label="Затемнение фона"></div>
-        <div class="set"><div><b>Размытие фона</b><span id="blurLbl">0 px</span></div><input type="range" id="bgBlur" min="0" max="30" value="0" aria-label="Размытие фона"></div>
+        <div class="set"><div style="display:flex;gap:14px;align-items:center"><div class="bgprev" id="bgPrev"></div><div><b>Background</b><span>своя картинка; можно просто перетащить её в окно</span></div></div>
+          <div class="row"><input type="file" id="bgFile" accept="image/*" style="display:none"><button class="btn" id="bgPick">Choose image</button><button class="btn" id="bgClear">Remove</button></div></div>
+        <div class="set"><div><b>Dim</b><span id="dimLbl">45%</span></div><input type="range" id="bgDim" min="0" max="90" value="45" aria-label="Затемнение фона"></div>
+        <div class="set"><div><b>Blur</b><span id="blurLbl">0 px</span></div><input type="range" id="bgBlur" min="0" max="30" value="0" aria-label="Размытие фона"></div>
       </div>
       <div class="card glass pad st" style="--i:3">
-        <div class="set"><div><b>Обновления</b><span id="updLine">проверяю...</span></div><button class="btn" data-a="update">Проверить</button></div>
-        <div class="set"><div><b>Диагностика</b><span>что и как заблокировано, VPN, адаптеры, провайдер</span></div><button class="btn" data-a="diag">Запустить</button></div>
-        <div class="set"><div><b>Поделиться результатом</b><span>готовый текст на GitHub: провайдер и сработавшие стратегии, без личных данных</span></div><button class="btn" data-a="share">Открыть</button></div>
-        <div class="set"><div><b>Папка программы</b><span id="dirLine"></span></div><button class="btn" data-a="openDir">Открыть</button></div>
-        <div class="set"><div><b>Сбросить настройки</b><span>стратегии подберутся заново при следующем включении</span></div><button class="btn dng" data-a="reset">Сбросить</button></div>
+        <div class="set"><div><b>Updates</b><span id="updLine">checking…</span></div><button class="btn" data-a="update">Check</button></div>
+        <div class="set"><div><b>Diagnostics</b><span>что и как заблокировано, VPN, адаптеры, провайдер</span></div><button class="btn" data-a="diag">Run</button></div>
+        <div class="set"><div><b>Share results</b><span>готовый текст на GitHub: провайдер и сработавшие стратегии, без личных данных</span></div><button class="btn" data-a="share">Open</button></div>
+        <div class="set"><div><b>Program folder</b><span id="dirLine"></span></div><button class="btn" data-a="openDir">Open</button></div>
+        <div class="set"><div><b>Reset</b><span>стратегии подберутся заново при следующем включении</span></div><button class="btn dng" data-a="reset">Reset</button></div>
       </div>
     </section>
   </main>
 </div>
 
 <div class="toasts" id="toasts"></div>
-<div class="modal" id="modal" role="dialog" aria-modal="true"><div class="dlg glass"><p id="mText"></p><div class="row" style="justify-content:flex-end"><button class="btn" id="mNo">Нет</button><button class="btn pri" id="mYes">Да</button></div></div></div>
+<div class="modal" id="modal" role="dialog" aria-modal="true"><div class="dlg glass"><p id="mText"></p><div class="row" style="justify-content:flex-end"><button class="btn" id="mNo">No</button><button class="btn pri" id="mYes">Yes</button></div></div></div>
 
 <script>
 (function(){
@@ -367,9 +373,11 @@ document.addEventListener("pointerdown",e=>{
 $$("[data-a]").forEach(b=>b.addEventListener("click",()=>{
   const a=b.dataset.a;
   if(a==="deep")return call("deep",$("#deepIn").value.trim());
-  if(a==="tgCopy"){navigator.clipboard&&navigator.clipboard.writeText(S.tgLink||"");toast("Ссылка скопирована");return}
+  if(a==="tgCopy"){navigator.clipboard&&navigator.clipboard.writeText(S.tgLink||"");toast("Link copied");return}
+  if(a==="tgAddProxy"){const v=$("#tgUp").value.trim();if(!v){toast("Вставь ссылку на прокси");return}call("tgAddProxy",v);$("#tgUp").value="";return}
   call(a);
 }));
+$("#tgUp").addEventListener("keydown",e=>{if(e.key==="Enter"){const v=e.target.value.trim();if(v){call("tgAddProxy",v);e.target.value=""}}});
 $("#deepIn").addEventListener("keydown",e=>{if(e.key==="Enter")call("deep",e.target.value.trim())});
 $("#mainTog").addEventListener("click",()=>{ if(S.running||S.starting)call("off"); else call("on",selMode) });
 $$(".mode").forEach(m=>m.addEventListener("click",()=>{
@@ -419,37 +427,38 @@ function renderSites(){
   home.replaceChildren(...list.map((s,i)=>siteRow(s,i,false)));
   all.replaceChildren(...list.map((s,i)=>siteRow(s,i,true)));
   list.forEach(s=>{if(prevKinds[s.name]&&prevKinds[s.name]!==s.kind)$$('.bd').filter(b=>b.dataset.k===s.name+s.kind).forEach(b=>b.classList.add("flash"));prevKinds[s.name]=s.kind});
-  $("#sitesCount").textContent=S.sitesTotal?(S.sitesOk+" из "+S.sitesTotal):"";
+  $("#sitesCount").textContent=S.sitesTotal?(S.sitesOk+"/"+S.sitesTotal+" up"):"";
 }
 function apply(st){
   const prev=S;S=st;
-  $("#ver").textContent="версия "+st.version;
+  $("#ver").textContent="v"+st.version;
   if(!prev.version){selMode=st.mode||2;paintModes()}
   const on=st.running||st.starting;
-  paintTog("#mainTog",on);$("#mainTog").setAttribute("aria-label",on?"Выключить обход":"Включить обход");
-  $("#togLbl").textContent=st.starting?"Запуск...":(st.running?"Включено":"Выключено");
-  let kind="off",t="Обход выключен",s="Выбери режим и включи переключателем сверху";
-  if(st.starting||st.busy){kind="busy";t=st.running?"Обход работает":"Подождите...";s=st.status||"Работаю..."}
+  paintTog("#mainTog",on);$("#mainTog").setAttribute("aria-label",on?"Turn off":"Turn on");
+  $("#togLbl").textContent=st.starting?"Starting…":(st.running?"On":"Off");
+  let kind="off",t="Bypass off",s="Выбери режим и включи переключателем сверху";
+  if(st.starting||st.busy){kind="busy";t=st.running?"Running":"Please wait…";s=st.status||"Working…"}
   else if(st.running){
-    if(st.sitesTotal&&st.sitesOk<st.sitesTotal){kind="warn";t="Открывается не всё"}else{kind="ok";t="Всё открывается"}
-    s=(st.mode===1?"Режим «без VPN»":"Режим «вместе с VPN»")+(st.checked?" · проверено "+st.checked:"");
-  } else if(st.status&&st.status!=="Обход выключен"){s=st.status}
+    if(st.sitesTotal&&st.sitesOk<st.sitesTotal){kind="warn";t="Some sites don't respond"}else{kind="ok";t="All sites respond"}
+    s=(st.status||(st.mode===1?"No VPN mode":"With VPN mode"))+(st.checked?" · checked "+st.checked:"");
+  } else if(st.status&&st.status!=="Bypass off"){s=st.status}
   badge(kind);$("#heroT").textContent=t;$("#heroS").textContent=s;
   const meta=$("#heroMeta");meta.replaceChildren();
   [st.isp,st.vpn].forEach(x=>{if(x){const d=document.createElement("div");d.textContent=x;meta.appendChild(d)}});
   renderSites();
   paintTog("#togAuto",st.autostart);paintTog("#togTray",st.tray);
   $("#updCard").classList.toggle("show",!!st.update);
-  $("#updTitle").textContent=st.update?("Доступна "+st.update):"";
-  $("#updLine").textContent=st.update?("доступна версия "+st.update+" (у тебя "+st.version+")"):("у тебя версия "+st.version);
-  $("#tgLink").textContent=st.tgLink||"Прокси запускается вместе с обходом";
+  $("#updTitle").textContent=st.update?("v"+st.update+" available"):"";
+  $("#updLine").textContent=st.update?("v"+st.update+" available · current v"+st.version):("current v"+st.version);
+  $("#tgLink").textContent=st.tgLink||"Starts with the bypass";
   $("#tgStats").textContent=st.tgStats||"";
+  const tp=st.tgProxies||[];$("#tgProxies").replaceChildren(...(tp.length?tp:["—"]).map(x=>{const d=document.createElement("div");d.className="r";d.textContent=x;return d}));
   $("#defPath").textContent=st.dir||"";$("#dirLine").textContent=st.dir||"";
   $("#defState").textContent=st.missing&&st.missing.length?("Не хватает файлов: "+st.missing.join(", ")+" — скорее всего их удалил Защитник."):"Все файлы winws на месте.";
   $("#dDef").classList.toggle("show",!!(st.missing&&st.missing.length));
   const p=st.progress||{};
   $("#progBar").style.width=p.total?Math.round(p.cur*100/p.total)+"%":"0";
-  $("#progLbl").textContent=p.total?(p.label||(p.cur+" из "+p.total)):(st.deepActive?"Готовлюсь...":"Не запущено");
+  $("#progLbl").textContent=p.total?(p.label||(p.cur+" из "+p.total)):(st.deepActive?"Preparing…":"Idle");
   if(st.deepActive&&!prev.deepActive){$("#deepLog").replaceChildren()}
   $("#dDeep").classList.toggle("show",!!st.deepActive);
   $$("[data-a]").forEach(b=>{const a=b.dataset.a;if(["diag","reselect","tune","deep","share","reset"].includes(a))b.disabled=!!st.busy});

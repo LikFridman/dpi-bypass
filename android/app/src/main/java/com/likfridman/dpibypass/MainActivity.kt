@@ -206,7 +206,7 @@ class MainActivity : Activity() {
                         try {
                             Engine.log("== Диагностика: проверка без обхода ==")
                             val r = Engine.probeAll(null)
-                            Engine.sites.forEach { s -> r[s.name]?.let { Engine.log("${if (it.ok) "+" else "-"} ${s.name}: ${if (it.ok) "доступен" else it.reason}") } }
+                            Engine.sites.forEach { s -> r[s.name]?.let { Engine.log(Engine.probeLine(s.name, it)) } }
                         } finally { Engine.busy = false }
                     }.start()
                     null
@@ -218,6 +218,56 @@ class MainActivity : Activity() {
                 "bgOpts" -> {
                     val p = arg.split(":")
                     Store.setBgOpts(this@MainActivity, p.getOrNull(0)?.toIntOrNull() ?: 45, p.getOrNull(1)?.toIntOrNull() ?: 0)
+                    null
+                }
+                "tgOpen" -> {
+                    if (!TgProxy.ready) toast("Прокси Telegram запускается вместе с обходом - сначала включи обход")
+                    else ui.post {
+                        try {
+                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(TgProxy.link(this@MainActivity))))
+                        } catch (e: Exception) {
+                            toast("Telegram не установлен")
+                        }
+                    }
+                    null
+                }
+                "tgCopy" -> {
+                    val cm = getSystemService(android.content.ClipboardManager::class.java)
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("Telegram proxy", TgProxy.link(this@MainActivity)))
+                    toast("Link copied")
+                    null
+                }
+                "tgAddProxy" -> {
+                    val l = arg.trim()
+                    val okLink = listOf("tg://proxy?", "tg://socks?", "https://t.me/proxy?", "https://t.me/socks?", "socks5://").any { l.startsWith(it, true) }
+                    if (!okLink) toast("Нужна ссылка tg://proxy?... или socks5://адрес:порт")
+                    else {
+                        Store.setTgProxies(this@MainActivity, (Store.tgProxies(this@MainActivity) + l).distinct())
+                        toast("Запасной прокси добавлен")
+                        TgProxy.restartIfRunning(this@MainActivity)
+                    }
+                    null
+                }
+                "tgTest" -> {
+                    Thread {
+                        val (ms, err) = TgProxy.check(this@MainActivity)
+                        val msg = if (ms != null) "Telegram отвечает: ping $ms ms" else "Telegram не ответил: $err"
+                        Engine.log(msg)
+                        toast(msg)
+                    }.start()
+                    null
+                }
+                "tgClearProxies" -> {
+                    Store.setTgProxies(this@MainActivity, emptyList())
+                    toast("Запасные прокси удалены")
+                    TgProxy.restartIfRunning(this@MainActivity)
+                    null
+                }
+                "tgWorker" -> {
+                    val h = arg.trim().removePrefix("https://").removePrefix("wss://").substringBefore("/")
+                    Store.setTgWorker(this@MainActivity, h)
+                    toast(if (h.isEmpty()) "Worker убран" else "Worker сохранён: $h")
+                    TgProxy.restartIfRunning(this@MainActivity)
                     null
                 }
                 "vpnSettings" -> { ui.post { startActivity(Intent("android.settings.VPN_SETTINGS")) }; null }

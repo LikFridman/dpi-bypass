@@ -58,6 +58,7 @@ type uiState struct {
 	Checked    string      `json:"checked"`
 	TgLink     string      `json:"tgLink"`
 	TgStats    string      `json:"tgStats"`
+	TgProxies  []string    `json:"tgProxies"`
 	Autostart  bool        `json:"autostart"`
 	Tray       bool        `json:"tray"`
 	Update     string      `json:"update"`
@@ -214,11 +215,11 @@ func ago(t time.Time) string {
 	d := time.Since(t)
 	switch {
 	case d < 20*time.Second:
-		return "только что"
+		return "just now"
 	case d < 90*time.Second:
-		return "минуту назад"
+		return "1 min ago"
 	default:
-		return fmt.Sprintf("%d мин назад", int(d.Minutes()))
+		return fmt.Sprintf("%d min ago", int(d.Minutes()))
 	}
 }
 
@@ -236,7 +237,7 @@ func siteRows() ([]uiSiteRow, int, int, string) {
 	if cfg != nil {
 		for _, g := range cfg.Groups {
 			for _, n := range g.Services {
-				strat[n] = g.Strategy + " · общая"
+				strat[n] = g.Strategy + " · shared"
 			}
 		}
 	}
@@ -246,7 +247,7 @@ func siteRows() ([]uiSiteRow, int, int, string) {
 		if cfg != nil {
 			for d := range cfg.Sites {
 				if domainCovered(d, s.Domains) || domainCovered(s.Probes[0], []string{d}) {
-					row.Strategy, custom = "своя · "+cfg.Sites[d], true
+					row.Strategy, custom = "custom · "+cfg.Sites[d], true
 				}
 			}
 		}
@@ -256,34 +257,34 @@ func siteRows() ([]uiSiteRow, int, int, string) {
 		}
 		switch {
 		case unfix != "" && s.Name == "Telegram" && running && (len(vpnSocks()) > 0 || curVPN.FullTunnel):
-			row.Kind, row.Label, row.Strategy = "vpn", "через VPN", "IP заблокирован"
+			row.Kind, row.Label, row.Strategy = "vpn", "via VPN", "IP blocked"
 		case unfix != "" && (strings.Contains(unfix, "TCP") || strings.Contains(unfix, "DNS")):
-			row.Kind, row.Label, row.Strategy = "bad", "блок по IP", "нужен VPN"
+			row.Kind, row.Label, row.Strategy = "bad", "none", "IP blocked · needs VPN"
 		case unfix != "":
-			row.Kind, row.Label = "bad", "не открывается"
+			row.Kind, row.Label = "bad", "none"
 			if row.Strategy == "" {
-				row.Strategy = "глубокая проверка?"
+				row.Strategy = "try deep scan"
 			}
 		case running && res != nil:
 			total++
 			if r, has := res[s.Name]; has && r.OK {
 				ok++
-				row.Kind, row.Label = "ok", "открывается"
+				row.Kind, row.Label = "ok", pingLabel(r)
 				if custom {
-					row.Kind, row.Label = "custom", "своя стратегия"
+					row.Kind = "custom"
 				}
 			} else if has {
-				row.Kind, row.Label = "bad", "не открывается"
+				row.Kind, row.Label = "bad", "none"
 			} else {
-				row.Kind, row.Label = "idle", "проверяю..."
+				row.Kind, row.Label = "idle", "checking…"
 			}
 		case running:
-			row.Kind, row.Label = "idle", "проверяю..."
+			row.Kind, row.Label = "idle", "checking…"
 		default:
-			row.Kind, row.Label = "idle", "обход выключен"
+			row.Kind, row.Label = "idle", "off"
 		}
 		if row.Strategy == "" {
-			row.Strategy = "без обхода"
+			row.Strategy = "direct"
 		}
 		rows = append(rows, row)
 	}
@@ -303,11 +304,11 @@ func siteRows() ([]uiSiteRow, int, int, string) {
 		}
 		sortStrings(extra)
 		for _, d := range extra {
-			k, l := "idle", "обход выключен"
+			k, l := "idle", "off"
 			if running {
-				k, l = "custom", "своя стратегия"
+				k, l = "custom", "custom"
 			}
-			rows = append(rows, uiSiteRow{Name: d, Kind: k, Label: l, Strategy: "своя · " + cfg.Sites[d]})
+			rows = append(rows, uiSiteRow{Name: d, Kind: k, Label: l, Strategy: "custom · " + cfg.Sites[d]})
 		}
 	}
 	checked := ""
@@ -334,6 +335,7 @@ func buildUIState() uiState {
 		Version: version, Running: engRunning.Load(), Busy: busy.Load(),
 		Mode: settings.LastMode, Autostart: autostartCache.Load(), Tray: settings.Tray,
 		Dir: baseDir, Missing: missingZapretFiles(), TgLink: tgCurrentLink, TgStats: tgStatusLine(),
+		TgProxies:  tgUpstreamNames(),
 		DeepActive: deepActive.Load(),
 	}
 	st.Starting = engineGoroutine.Load() && !st.Running
@@ -516,6 +518,17 @@ func webCall(cmd, arg string) (any, error) {
 		} else {
 			openURL(tgCurrentLink)
 		}
+	case "tgAddProxy":
+		u, err := tgAddUpstream(arg)
+		if err != nil {
+			uiToast("Ссылка не подходит: " + err.Error())
+		} else {
+			uiToast("Добавлен запасной прокси: " + u.String())
+			info("Telegram: добавлен запасной прокси %s", u)
+		}
+	case "tgClearProxies":
+		os.Remove(tgProxiesFile())
+		uiToast("Запасные прокси удалены")
 	case "openWorker":
 		if !fileExists(tgWorkerJS()) {
 			os.WriteFile(tgWorkerJS(), []byte(workerJS), 0644)

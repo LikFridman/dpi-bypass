@@ -159,6 +159,20 @@ jobs:
       - name: Движки (Android NDK)
         run: bash android/native/build.sh deps
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Прокси Telegram для Android (Go)
+        run: |
+          go test ./tg
+          for pair in arm64-v8a:arm64 armeabi-v7a:arm x86_64:amd64; do
+            abi="${pair%%:*}"; arch="${pair##*:}"
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch GOARM=7 go build -trimpath -ldflags="-s -w" \
+              -o android/app/src/main/jniLibs/$abi/libtgproxy.so ./cmd/tgproxy
+          done
+          ls -la android/app/src/main/jniLibs/*/libtgproxy.so
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.10.2"

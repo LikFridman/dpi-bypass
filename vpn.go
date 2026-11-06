@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"dpibypass/tg"
 	"encoding/binary"
 	"fmt"
 	"net"
@@ -453,7 +454,7 @@ func detectVPN() VPNState {
 			if (r.LocalIP.Equal(net.IPv4(127, 0, 0, 1)) || r.LocalIP.Equal(net.IPv4zero)) && !sockSeen[r.LocalPort] && len(sockSeen) < 10 {
 				sockSeen[r.LocalPort] = true
 				addr := fmt.Sprintf("127.0.0.1:%d", r.LocalPort)
-				if IsSocks5(addr) {
+				if tg.IsSocks5(addr) {
 					s.Socks = append(s.Socks, addr)
 				}
 			}

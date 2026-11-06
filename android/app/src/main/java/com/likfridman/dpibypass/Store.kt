@@ -21,6 +21,23 @@ object Store {
     fun setBgOpts(ctx: Context, dim: Int, blur: Int) =
         p(ctx).edit().putInt("bgDim", dim.coerceIn(0, 90)).putInt("bgBlur", blur.coerceIn(0, 30)).apply()
 
+    /** Постоянный секрет локального прокси Telegram (чтобы прокси не добавлять заново). */
+    fun tgSecret(ctx: Context): String {
+        p(ctx).getString("tgSecret", null)?.let { if (it.length == 32) return it }
+        val b = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }
+        val hex = b.joinToString("") { "%02x".format(it) }
+        p(ctx).edit().putString("tgSecret", hex).apply()
+        return hex
+    }
+
+    /** Запасные прокси для Telegram (tg://proxy?... или socks5://...). */
+    fun tgProxies(ctx: Context): List<String> =
+        (p(ctx).getString("tgProxies", "") ?: "").lines().map { it.trim() }.filter { it.isNotEmpty() }
+    fun setTgProxies(ctx: Context, list: List<String>) = p(ctx).edit().putString("tgProxies", list.joinToString("\n")).apply()
+
+    fun tgWorker(ctx: Context): String = p(ctx).getString("tgWorker", "") ?: ""
+    fun setTgWorker(ctx: Context, host: String) = p(ctx).edit().putString("tgWorker", host).apply()
+
     /** Сколько раз каждая стратегия срабатывала - пробуем их первыми. */
     fun worked(ctx: Context): Map<String, Int> {
         val o = runCatching { JSONObject(p(ctx).getString("worked", "{}")!!) }.getOrElse { JSONObject() }

@@ -316,7 +316,7 @@ func checkAndUpdate(interactive bool) {
 	if interactive && !askYes(fmt.Sprintf("Доступна новая версия %s (у тебя %s).\nОбновить сейчас?", v, version)) {
 		return
 	}
-	setStatus("Скачиваю обновление...")
+	setStatus("Downloading update…")
 	p, err := downloadUpdate()
 	if err != nil {
 		bad("Обновление не удалось: %v", err)

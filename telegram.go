@@ -13,13 +13,15 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"dpibypass/tg"
 )
 
 const tgDefaultPort = 1443
 
 var (
 	tgCurrentLink string
-	tgProxy       *TGProxy
+	tgProxy       *tg.TGProxy
 	tgWorkerHost  string // свой Cloudflare Worker (dpi-bypass-data\telegram-worker.txt)
 	tgHinted      bool
 
@@ -50,6 +52,51 @@ func loadTGWorker() {
 		tgWorkerHost = line
 		return
 	}
+}
+
+func tgProxiesFile() string { return filepath.Join(dataDir, "telegram-proxies.txt") }
+
+// tgUpstreams - запасные прокси пользователя (tg://proxy?... и socks5://...), по одному в строке
+func tgUpstreams() []tg.Upstream {
+	b, err := os.ReadFile(tgProxiesFile())
+	if err != nil {
+		return nil
+	}
+	var out []tg.Upstream
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(strings.TrimPrefix(line, "\ufeff"))
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if u, err := tg.ParseUpstream(line); err == nil {
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
+// tgAddUpstream проверяет ссылку и дописывает её в список
+func tgAddUpstream(link string) (tg.Upstream, error) {
+	u, err := tg.ParseUpstream(link)
+	if err != nil {
+		return u, err
+	}
+	old, _ := os.ReadFile(tgProxiesFile())
+	if len(old) == 0 {
+		old = []byte("# Запасные прокси для Telegram: tg://proxy?... или socks5://host:port, по одному в строке\n")
+	}
+	if len(old) > 0 && old[len(old)-1] != '\n' {
+		old = append(old, '\n')
+	}
+	return u, os.WriteFile(tgProxiesFile(), append(old, []byte(strings.TrimSpace(link)+"\n")...), 0644)
+}
+
+func tgUpstreamNames() []string {
+	var out []string
+	for _, u := range tgUpstreams() {
+		out = append(out, u.String())
+	}
+	return out
 }
 
 func tgSecretFile() string { return filepath.Join(dataDir, "telegram-secret.txt") }
@@ -85,18 +132,21 @@ func openURL(u string) error {
 }
 
 // tgRoutes - способы связи с Telegram по порядку (пересчитываются для каждого соединения)
-func tgRoutes(px *TGProxy) []TGRoute {
+func tgRoutes(px *tg.TGProxy) []tg.TGRoute {
 	base := px.BaseRoutes() // WebSocket напрямую, TCP напрямую
-	r := []TGRoute{base[0]}
+	r := []tg.TGRoute{base[0]}
 	if tgWorkerHost != "" {
 		r = append(r, px.WorkerRoute(tgWorkerHost))
+	}
+	for _, u := range tgUpstreams() {
+		r = append(r, u.Route())
 	}
 	r = append(r, base[1])
 	if runMode == modeNoVPN {
 		return r
 	}
 	for _, s := range vpnSocks() {
-		r = append(r, SocksRoute("через VPN (SOCKS5)", s))
+		r = append(r, tg.SocksRoute("через VPN (SOCKS5)", s), px.WSSocksRoute("WebSocket через VPN", s))
 	}
 	return r
 }
@@ -113,6 +163,7 @@ func tgHint(ipBlocked bool) {
 	} else {
 		say("       - включить VPN (Happ и т.п.): программа найдёт его и пустит Telegram через него;")
 	}
+	say("       - свой MTProto- или SOCKS5-прокси: вставь ссылку в разделе Telegram;")
 	say("       - свой бесплатный Cloudflare Worker: инструкция в %s,", tgWorkerJS())
 	say("         адрес вписать в %s и перезапустить программу.", tgWorkerFile())
 }
@@ -121,7 +172,7 @@ func tgHint(ipBlocked bool) {
 func startTelegram(openLink bool, cfg *Config) {
 	title("Telegram")
 	secret, fresh := tgSecret()
-	px := &TGProxy{
+	px := &tg.TGProxy{
 		Secret: secret,
 		Resolve: func(host string) net.IP {
 			if ii, ok := resolve(host); ok {
@@ -131,7 +182,7 @@ func startTelegram(openLink bool, cfg *Config) {
 		},
 		Log: func(format string, a ...any) { info("%s %s", ts(), fmt.Sprintf(format, a...)) },
 	}
-	px.Routes = func() []TGRoute { return tgRoutes(px) }
+	px.Routes = func() []tg.TGRoute { return tgRoutes(px) }
 
 	port := tgDefaultPort
 	if b, err := os.ReadFile(tgPortFile()); err == nil {
@@ -205,5 +256,5 @@ func tgStatusLine() string {
 	if total == 0 {
 		return ""
 	}
-	return fmt.Sprintf("Telegram: соединений %d (сейчас %d) - WebSocket %d, напрямую %d, ошибок %d", total, active, ws, tcp, failed)
+	return fmt.Sprintf("connections %d (active %d) · WebSocket %d · TCP %d · failed %d", total, active, ws, tcp, failed)
 }

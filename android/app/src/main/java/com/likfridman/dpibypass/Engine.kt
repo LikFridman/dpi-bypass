@@ -27,7 +27,10 @@ data class Strategy(val id: String, val name: String, val args: List<String>)
 data class Site(val name: String, val host: String)
 
 /** Результат проверки сайта. */
-data class Probe(val ok: Boolean, val kind: String, val reason: String)
+data class Probe(val ok: Boolean, val kind: String, val reason: String, val ms: Int = 0) {
+    /** Подпись для списка: "42 мс" или "none", если сайт не ответил. */
+    val label: String get() = if (ok && ms > 0) "$ms ms" else "none"
+}
 
 /**
  * Движок: локальный SOCKS-прокси byedpi, проверка сайтов и подбор стратегии.
@@ -68,7 +71,7 @@ object Engine {
     private val logLock = Any()
     private val logLines = ArrayList<String>()
     private var logSeq = 0L
-    @Volatile var status = "Обход выключен"
+    @Volatile var status = "Bypass off"
     @Volatile var running = false
     @Volatile var starting = false
     @Volatile var busy = false
@@ -141,7 +144,7 @@ object Engine {
                 }
                 stream.close()
             }
-            Probe(true, "ok", "HTTP $code")
+            Probe(true, "ok", "HTTP $code", ping(host))
         } catch (e: UnknownHostException) {
             Probe(false, "dns", "DNS не отвечает")
         } catch (e: ConnectException) {
@@ -162,6 +165,25 @@ object Engine {
         }
     }
 
+    /** Пинг: время TCP-соединения с сервером напрямую (на него DPI не влияет), мс. */
+    fun ping(host: String): Int = try {
+        val ip = java.net.InetAddress.getByName(host)
+        java.net.Socket().use { sock ->
+            val t0 = System.nanoTime()
+            sock.connect(InetSocketAddress(ip, 443), 3000)
+            ((System.nanoTime() - t0) / 1_000_000).toInt().coerceAtLeast(1)
+        }
+    } catch (e: Exception) { 0 }
+
+    /** Средний пинг ответивших сайтов (0 - никто не ответил). */
+    fun avgPing(res: Map<String, Probe>): Int {
+        val v = res.values.filter { it.ok && it.ms > 0 }.map { it.ms }
+        return if (v.isEmpty()) 0 else v.sum() / v.size
+    }
+
+    fun probeLine(name: String, p: Probe) =
+        if (p.ok) "+ $name: ping ${p.label}" else "- $name: ping none · ${p.reason}"
+
     fun probeAll(socksPort: Int?, list: List<Site> = sites): Map<String, Probe> {
         val pool = Executors.newFixedThreadPool(8)
         val fut = list.associate { s -> s.name to pool.submit<Probe> { probe(s.host, socksPort) } }
@@ -175,9 +197,9 @@ object Engine {
     /** Перебирает стратегии; возвращает лучшую и сохраняет её. */
     fun select(ctx: Context): Strategy {
         log("== Проверка без обхода ==")
-        status = "Проверяю сайты..."
+        status = "Checking sites…"
         val base = probeAll(null)
-        sites.forEach { s -> base[s.name]?.let { log("${if (it.ok) "+" else "-"} ${s.name}: ${if (it.ok) "доступен" else it.reason}") } }
+        sites.forEach { s -> base[s.name]?.let { log(probeLine(s.name, it)) } }
         val cands = sites.filter { base[it.name]?.kind == "dpi" }
         val ipBlocked = sites.filter { base[it.name]?.kind == "ip" || base[it.name]?.kind == "dns" }.map { it.name }
         Store.setUnfixable(ctx, ipBlocked)
@@ -194,7 +216,7 @@ object Engine {
         for ((i, s) in orderedStrategies(ctx).withIndex()) {
             if (cancel) break
             progCur = i + 1
-            status = "Подбор стратегий: ${i + 1} из ${strategies.size}"
+            status = "Testing strategies: ${i + 1}/${strategies.size}"
             val p = runCatching { startProxy(ctx, s, TEST_PORT) }.getOrNull()
             if (p == null || !p.isAlive) {
                 log("[${i + 1}/${strategies.size}] ${s.name}: не запустилась")
@@ -244,15 +266,15 @@ object Engine {
             val r = JSONObject().put("name", s.name)
             val p = results[s.name]
             when {
-                unfix.contains(s.name) -> r.put("kind", "bad").put("label", "блок по IP").put("strategy", "нужен VPN")
+                unfix.contains(s.name) -> r.put("kind", "bad").put("label", "none").put("strategy", "IP blocked · needs VPN")
                 running && p != null -> {
                     total++
-                    if (p.ok) { ok++; r.put("kind", "ok").put("label", "открывается") }
-                    else r.put("kind", "bad").put("label", "не открывается")
+                    if (p.ok) ok++
+                    r.put("kind", if (p.ok) "ok" else "bad").put("label", p.label)
                     r.put("strategy", st?.id ?: "")
                 }
-                running -> r.put("kind", "idle").put("label", "проверяю...").put("strategy", st?.id ?: "")
-                else -> r.put("kind", "idle").put("label", "обход выключен").put("strategy", st?.id ?: "—")
+                running -> r.put("kind", "idle").put("label", "checking…").put("strategy", st?.id ?: "")
+                else -> r.put("kind", "idle").put("label", "off").put("strategy", st?.id ?: "—")
             }
             rows.put(r)
         }
@@ -261,15 +283,21 @@ object Engine {
         o.put("sitesTotal", total)
         o.put("checked", if (running && checkedAt > 0) ago(checkedAt) else "")
         o.put("progress", JSONObject().put("cur", progCur).put("total", progTotal))
+        o.put("tgRunning", TgProxy.ready)
+        o.put("tgLink", if (TgProxy.ready) TgProxy.link(ctx) else "")
+        o.put("tgStats", TgProxy.stats)
+        o.put("tgError", TgProxy.lastError)
+        o.put("tgProxies", JSONArray(Store.tgProxies(ctx)))
+        o.put("tgWorker", Store.tgWorker(ctx))
         return o
     }
 
     private fun ago(t: Long): String {
         val s = (System.currentTimeMillis() - t) / 1000
         return when {
-            s < 20 -> "только что"
-            s < 90 -> "минуту назад"
-            else -> "${s / 60} мин назад"
+            s < 20 -> "just now"
+            s < 90 -> "1 min ago"
+            else -> "${s / 60} min ago"
         }
     }
 }

@@ -1,4 +1,4 @@
-package main
+package tg
 
 // Локальный MTProto-прокси для Telegram Desktop.
 // Telegram подключается к 127.0.0.1 как к обычному MTProto-прокси, а мы
@@ -110,8 +110,22 @@ func parseClientInit(init, secret []byte) (tgClientInit, bool) {
 
 func bytesEq(a, b []byte) bool { return string(a) == string(b) }
 
-// newRelayInit создаёт приветствие для серверов Telegram (обычный obfuscated2 без секрета).
-func newRelayInit(tag []byte, dcIdx int16) []byte {
+// relayKey - ключ obfuscated2 к следующему звену: для серверов Telegram ключ берётся
+// как есть, для внешнего MTProto-прокси он смешивается с его секретом.
+func relayKey(prekey, secret []byte) []byte {
+	if secret == nil {
+		return prekey
+	}
+	return withSecret(prekey, secret)
+}
+
+// newRelayInit создаёт приветствие для серверов Telegram (обычный obfuscated2 без секрета)
+// или для внешнего MTProto-прокси (secret - его 16-байтный ключ).
+func newRelayInit(tag []byte, dcIdx int16, secret ...[]byte) []byte {
+	var sec []byte
+	if len(secret) > 0 {
+		sec = secret[0]
+	}
 	rnd := make([]byte, tgHandshakeLen)
 	for {
 		rand.Read(rnd)
@@ -127,7 +141,7 @@ func newRelayInit(tag []byte, dcIdx int16) []byte {
 		}
 		break
 	}
-	key := rnd[tgSkipLen : tgSkipLen+tgPrekeyLen]
+	key := relayKey(rnd[tgSkipLen:tgSkipLen+tgPrekeyLen], sec)
 	iv := rnd[tgSkipLen+tgPrekeyLen : tgSkipLen+tgPrekeyLen+tgIVLen]
 	enc := xorBytes(ctrStream(key, iv), rnd)
 
@@ -147,7 +161,11 @@ type tgCrypto struct {
 	cltDec, cltEnc, tgEnc, tgDec cipher.Stream
 }
 
-func newTGCrypto(clientInit, secret, relayInit []byte) *tgCrypto {
+func newTGCrypto(clientInit, secret, relayInit []byte, relaySecret ...[]byte) *tgCrypto {
+	var rs []byte
+	if len(relaySecret) > 0 {
+		rs = relaySecret[0]
+	}
 	c := &tgCrypto{}
 	pk := clientInit[tgSkipLen : tgSkipLen+tgPrekeyLen+tgIVLen]
 	c.cltDec = ctrStream(withSecret(pk[:tgPrekeyLen], secret), pk[tgPrekeyLen:])
@@ -156,10 +174,10 @@ func newTGCrypto(clientInit, secret, relayInit []byte) *tgCrypto {
 	c.cltEnc = ctrStream(withSecret(rpk[:tgPrekeyLen], secret), rpk[tgPrekeyLen:])
 
 	tk := relayInit[tgSkipLen : tgSkipLen+tgPrekeyLen+tgIVLen]
-	c.tgEnc = ctrStream(tk[:tgPrekeyLen], tk[tgPrekeyLen:])
+	c.tgEnc = ctrStream(relayKey(tk[:tgPrekeyLen], rs), tk[tgPrekeyLen:])
 	c.tgEnc.XORKeyStream(make([]byte, 64), make([]byte, 64))
 	rtk := reversed(tk)
-	c.tgDec = ctrStream(rtk[:tgPrekeyLen], rtk[tgPrekeyLen:])
+	c.tgDec = ctrStream(relayKey(rtk[:tgPrekeyLen], rs), rtk[tgPrekeyLen:])
 	return c
 }
 
@@ -388,6 +406,8 @@ type TGRoute struct {
 	Name string
 	WS   func(dc int, media, test bool) (*wsConn, string, error)
 	TCP  func(dc int) (net.Conn, string, error)
+	// RelaySecret - ключ внешнего MTProto-прокси (для TCP); nil - серверы Telegram напрямую
+	RelaySecret []byte
 }
 
 type TGProxy struct {
@@ -510,15 +530,42 @@ func tgPath(test bool) string {
 }
 
 func (p *TGProxy) defaultDialWS(dc int, media, test bool) (*wsConn, string, error) {
+	return p.dialWSVia(dc, media, test, directDial)
+}
+
+// wsIPs - адреса для домена kws: найденный через DNS и запасной (если отличается)
+func (p *TGProxy) wsIPs(host string) []string {
+	ip := p.resolveOr(host, tgWSFallbackIP)
+	if ip == tgWSFallbackIP {
+		return []string{ip}
+	}
+	return []string{ip, tgWSFallbackIP}
+}
+
+func (p *TGProxy) dialWSVia(dc int, media, test bool, dial func(addr string) (net.Conn, error)) (*wsConn, string, error) {
 	var lastErr error
 	for _, host := range tgWSDomains(dc, media) {
-		ws, err := dialWSS(host, p.resolveOr(host, tgWSFallbackIP), tgPath(test), directDial)
-		if err == nil {
-			return ws, host, nil
+		for _, ip := range p.wsIPs(host) {
+			ws, err := dialWSS(host, ip, tgPath(test), dial)
+			if err == nil {
+				return ws, host, nil
+			}
+			lastErr = err
+			var he wsHandshakeErr
+			if errors.As(err, &he) {
+				break // сервер ответил, но не пустил - другой IP того же домена не поможет
+			}
 		}
-		lastErr = err
 	}
 	return nil, "", lastErr
+}
+
+// WSSocksRoute - WebSocket к web.telegram.org через локальный SOCKS5
+// (на Android - через byedpi, который маскирует TLS от DPI).
+func (p *TGProxy) WSSocksRoute(name, socksAddr string) TGRoute {
+	return TGRoute{Name: name, WS: func(dc int, media, test bool) (*wsConn, string, error) {
+		return p.dialWSVia(dc, media, test, func(addr string) (net.Conn, error) { return socks5Dial(socksAddr, addr) })
+	}}
 }
 
 func tgDCAddr(dc int) string {
@@ -700,6 +747,14 @@ func (p *TGProxy) handle(c net.Conn) {
 	}
 	relay := newRelayInit(ci.Tag, int16(dcIdx))
 	cr := newTGCrypto(init, p.Secret, relay)
+	// для внешнего MTProto-прокси приветствие и ключи другие (смешаны с его секретом)
+	relayFor := func(r TGRoute) ([]byte, *tgCrypto) {
+		if r.RelaySecret == nil {
+			return relay, cr
+		}
+		ri := newRelayInit(ci.Tag, int16(dcIdx), r.RelaySecret)
+		return ri, newTGCrypto(init, p.Secret, ri, r.RelaySecret)
+	}
 	label := fmt.Sprintf("DC%d", ci.DC)
 	if ci.Media {
 		label += " (медиа)"
@@ -741,11 +796,12 @@ func (p *TGProxy) handle(c net.Conn) {
 			p.setBad(key, false)
 			p.viaTCP.Add(1)
 			p.logOnce("ok"+key, "Telegram %s -> %s %s", label, r.Name, via)
-			if _, err := tc.Write(relay); err != nil {
+			ri, rc := relayFor(r)
+			if _, err := tc.Write(ri); err != nil {
 				tc.Close()
 				return
 			}
-			p.bridgeTCP(c, tc, cr)
+			p.bridgeTCP(c, tc, rc)
 			tc.Close()
 			return
 		}

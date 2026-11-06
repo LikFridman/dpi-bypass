@@ -47,9 +47,9 @@ func deepScan(host string) (Strategy, bool) {
 			el := time.Since(start)
 			left := ""
 			if i > 0 {
-				left = fmt.Sprintf(", осталось ~%d мин", int(el.Seconds()/float64(i)*float64(total-i)/60)+1)
+				left = fmt.Sprintf(" · ~%d min left", int(el.Seconds()/float64(i)*float64(total-i)/60)+1)
 			}
-			setStatus(fmt.Sprintf("Глубокая проверка %s: %d из %d%s", host, i+1, total, left))
+			setStatus(fmt.Sprintf("Deep scan %s: %d/%d%s", host, i+1, total, left))
 			info("[%d/%d] проверяю...%s", i+1, total, left)
 		}
 		w, err := startWinws(testArgs(st))

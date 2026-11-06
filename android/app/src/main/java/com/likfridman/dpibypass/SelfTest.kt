@@ -43,9 +43,18 @@ object SelfTest {
         val p = Engine.startProxy(a, Engine.strategies.first(), Engine.TEST_PORT)
         val r = Engine.probe("www.google.com", Engine.TEST_PORT)
         check("сайт через byedpi", r.ok, r.reason)
+        TgProxy.start(a, Engine.TEST_PORT)
+        for (i in 0 until 20) { if (TgProxy.ready) break; Thread.sleep(250) }
+        check("прокси Telegram запустился", TgProxy.ready, TgProxy.lastError)
+        val (tgMs, tgErr) = TgProxy.check(a)
+        // настоящий запрос к Telegram - не критично, сеть эмулятора в CI может не пустить
+        out.appendLine(if (tgMs != null) "INFO Telegram ответил через прокси за $tgMs мс" else "INFO Telegram через прокси: $tgErr")
+        Log.i(TAG, if (tgMs != null) "INFO Telegram ok $tgMs ms" else "INFO Telegram fail $tgErr")
+        TgProxy.stop()
         Engine.stopProxy(p)
         val direct = Engine.probe("www.google.com", null)
         check("сайт напрямую", direct.ok, direct.reason)
+        check("пинг измеряется", direct.ms > 0, direct.label)
 
         for (i in 0 until 40) { if (page != null) break; Thread.sleep(250) }
         check("страница", page == "[]", page ?: "нет ответа")

@@ -93,7 +93,7 @@ class BypassVpnService : VpnService() {
             var st = Engine.strategyById(Store.strategy(this))
             if (st == null || reselect) st = Engine.select(this)
             if (stopping) return
-            Engine.status = "Запускаю обход..."
+            Engine.status = "Starting…"
             proxy = Engine.startProxy(this, st, Engine.PORT)
             if (proxy?.isAlive != true) {
                 Engine.log("byedpi не запустился - подбираю другую стратегию")
@@ -109,6 +109,7 @@ class BypassVpnService : VpnService() {
             Engine.running = true
             Engine.starting = false
             Engine.log("Обход работает: ${st.name}")
+            TgProxy.start(this, Engine.PORT)
             watch(st)
         } catch (e: Exception) {
             Engine.log("Ошибка: ${e.message}")
@@ -160,7 +161,11 @@ class BypassVpnService : VpnService() {
             Engine.checkedAt = System.currentTimeMillis()
             val ok = Engine.results.values.count { it.ok }
             val total = Engine.results.size
-            Engine.status = "Обход работает: открывается $ok из $total"
+            val avg = Engine.avgPing(Engine.results)
+            val bad = Engine.results.filter { !it.value.ok }.keys
+            Engine.status = "Running: $ok/$total up" +
+                (if (avg > 0) " · ping ~$avg ms" else "") +
+                (if (bad.isNotEmpty()) " · none: " + bad.joinToString(", ") else "")
             foreground()
             fails = if (total > 0 && ok * 2 < total) fails + 1 else 0
             if (fails >= 2 && !stopping) {
@@ -183,6 +188,7 @@ class BypassVpnService : VpnService() {
     }
 
     private fun shutdownTunnel() {
+        TgProxy.stop()
         runCatching { if (TProxyService.TProxyIsRunning()) TProxyService.TProxyStopService() }
         runCatching { tun?.close() }
         tun = null
@@ -197,7 +203,7 @@ class BypassVpnService : VpnService() {
         Engine.running = false
         Engine.starting = false
         Engine.results = emptyMap()
-        Engine.status = "Обход выключен"
+        Engine.status = "Bypass off"
         Engine.log("Обход выключен")
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()

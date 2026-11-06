@@ -143,17 +143,18 @@ func demoState(st uiState) uiState {
 	st.Running, st.Starting, st.Busy, st.Mode = true, false, false, modeWithVPN
 	st.ISP, st.VPN, st.Checked = "Ростелеком (AS12389)", "VPN: Happ (TUN, весь трафик через VPN)", "минуту назад"
 	st.TgLink = "tg://proxy?server=127.0.0.1&port=1443&secret=dd0123456789abcdef0123456789abcdef"
-	st.TgStats = "Telegram: соединений 12 (сейчас 3) - WebSocket 0, напрямую 0, ошибок 0"
+	st.TgStats = "connections 12 (active 3) · WebSocket 12 · TCP 0 · failed 0"
+	st.TgProxies = []string{"MTProto 203.0.113.7:443 (FakeTLS)"}
 	st.Update = "1.5"
 	st.Sites = []uiSiteRow{
-		{"YouTube", "ok", "открывается", "s1 · общая"},
-		{"Discord", "ok", "открывается", "s1 · общая"},
-		{"Instagram", "ok", "открывается", "s1 · общая"},
-		{"X/Twitter", "ok", "открывается", "s1 · общая"},
-		{"Rutracker", "custom", "своя стратегия", "своя · c41872"},
-		{"LinkedIn", "ok", "открывается", "s1 · общая"},
-		{"Roblox", "ok", "открывается", "u-u2 · общая"},
-		{"Telegram", "vpn", "через VPN", "IP заблокирован"},
+		{"YouTube", "ok", "38 ms", "s1 · shared"},
+		{"Discord", "ok", "52 ms", "s1 · shared"},
+		{"Instagram", "ok", "61 ms", "s1 · shared"},
+		{"X/Twitter", "ok", "74 ms", "s1 · shared"},
+		{"Rutracker", "custom", "45 ms", "custom · c41872"},
+		{"LinkedIn", "ok", "88 ms", "s1 · shared"},
+		{"Roblox", "ok", "112 ms", "u-u2 · shared"},
+		{"Telegram", "vpn", "via VPN", "IP blocked"},
 	}
 	st.SitesOK, st.SitesTotal = 7, 7
 	st.Missing = nil
@@ -190,7 +191,7 @@ func runUITest() {
 	if(q('.nv')!==7)e.push('кнопок меню '+q('.nv'));
 	['home','sites','deep','tg','def','log','set'].forEach(function(p){ui.go(p);if(!document.querySelector('#p-'+p+'.on'))e.push('не открылся раздел '+p)});
 	ui.go('home');
-	if(!/версия/.test(document.querySelector('#ver').textContent))e.push('нет версии');
+	if(!/^v\d/.test(document.querySelector("#ver").textContent))e.push("нет версии");
 	if(document.querySelector('#fullLog').childElementCount<1)e.push('журнал пуст');
 	if(!window.dpiCall)e.push('нет моста dpiCall');
 	window.dpiCall('uitest',JSON.stringify(e));})()`)

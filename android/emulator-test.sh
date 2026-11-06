@@ -18,7 +18,7 @@ adb shell dumpsys connectivity | grep -i "VPN" | head -3 | tee -a android-selfte
 mkdir -p docs/screens
 sleep 4
 adb exec-out screencap -p > docs/screens/android-home.png
-for p in sites log set; do
+for p in sites tg log set; do
   adb shell am start -n $PKG/.MainActivity --es page $p
   sleep 3
   adb exec-out screencap -p > docs/screens/android-$p.png

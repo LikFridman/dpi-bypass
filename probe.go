@@ -57,6 +57,7 @@ const (
 type Result struct {
 	Stage  Stage
 	Reason string
+	Ms     int // пинг: время TCP-соединения с сервером, мс
 }
 
 func (r Result) OK() bool { return r.Stage == StOK }
@@ -200,11 +201,16 @@ func isReset(err error) bool {
 func probeHost(host string) Result {
 	ii, ok := resolve(host)
 	if !ok {
-		return Result{StDNS, "не удалось узнать IP (DNS не отвечает)"}
+		return Result{StDNS, "не удалось узнать IP (DNS не отвечает)", 0}
 	}
+	t0 := time.Now()
 	conn, err := newDialer(dialTO).Dial("tcp4", net.JoinHostPort(ii.IP.String(), "443"))
 	if err != nil {
-		return Result{StTCP, "нет TCP-соединения: блокировка по IP или сервер недоступен"}
+		return Result{StTCP, "нет TCP-соединения: блокировка по IP или сервер недоступен", 0}
+	}
+	ms := int(time.Since(t0).Milliseconds())
+	if ms < 1 {
+		ms = 1
 	}
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(totalTO))
@@ -213,24 +219,24 @@ func probeHost(host string) Result {
 	if err := tc.Handshake(); err != nil {
 		switch {
 		case isTimeout(err):
-			return Result{StTLS, "DPI: TLS завис (блокировка по SNI)"}
+			return Result{StTLS, "DPI: TLS завис (блокировка по SNI)", 0}
 		case isReset(err):
-			return Result{StTLS, "DPI: соединение сброшено на TLS"}
+			return Result{StTLS, "DPI: соединение сброшено на TLS", 0}
 		default:
-			return Result{StTLS, "ошибка TLS: " + shortErr(err)}
+			return Result{StTLS, "ошибка TLS: " + shortErr(err), 0}
 		}
 	}
 	fmt.Fprintf(tc, "GET / HTTP/1.1\r\nHost: %s\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36\r\nAccept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n", host)
 	n, err := io.Copy(io.Discard, io.LimitReader(tc, bodyLimit))
 	switch {
 	case err == nil && n > 0, n >= bodyLimit:
-		return Result{StOK, ""}
+		return Result{StOK, "", ms}
 	case n == 0:
-		return Result{StData, "DPI: после TLS нет ответа"}
+		return Result{StData, "DPI: после TLS нет ответа", 0}
 	case isTimeout(err) || isReset(err):
-		return Result{StThrottle, fmt.Sprintf("обрыв после %d КБ (ограничение по объёму)", n>>10)}
+		return Result{StThrottle, fmt.Sprintf("обрыв после %d КБ (ограничение по объёму)", n>>10), 0}
 	default:
-		return Result{StOK, ""}
+		return Result{StOK, "", ms}
 	}
 }
 
@@ -253,6 +259,7 @@ type SvcResult struct {
 	Reason string // главная причина, если не OK
 	Stage  Stage  // худшая стадия
 	DNSBad bool
+	Ms     int // пинг основного адреса сервиса, мс (0 - нет отклика)
 }
 
 func probeService(s Service) SvcResult {
@@ -270,8 +277,11 @@ func probeService(s Service) SvcResult {
 		}(h)
 	}
 	wg.Wait()
-	for _, h := range s.Probes {
+	for i, h := range s.Probes {
 		r := res.Hosts[h]
+		if r.OK() && (i == 0 || res.Ms == 0) {
+			res.Ms = r.Ms
+		}
 		if ii, ok := resolve(h); ok && ii.DNSBad {
 			res.DNSBad = true
 		}
@@ -281,6 +291,9 @@ func probeService(s Service) SvcResult {
 			}
 			res.OK = false
 		}
+	}
+	if !res.OK {
+		res.Ms = 0
 	}
 	return res
 }
@@ -301,4 +314,27 @@ func probeAll(svcs []Service) map[string]SvcResult {
 	}
 	wg.Wait()
 	return out
+}
+
+// pingLabel - подпись для сайта: "42 мс" или "none", если сайт не ответил.
+func pingLabel(r SvcResult) string {
+	if !r.OK || r.Ms <= 0 {
+		return "none"
+	}
+	return fmt.Sprintf("%d ms", r.Ms)
+}
+
+// avgPing - средний пинг ответивших сервисов (0 - никто не ответил).
+func avgPing(res map[string]SvcResult) int {
+	sum, n := 0, 0
+	for _, r := range res {
+		if r.OK && r.Ms > 0 {
+			sum += r.Ms
+			n++
+		}
+	}
+	if n == 0 {
+		return 0
+	}
+	return sum / n
 }

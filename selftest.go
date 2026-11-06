@@ -3,6 +3,7 @@
 package main
 
 import (
+	"dpibypass/tg"
 	"fmt"
 	"strings"
 	"time"
@@ -68,12 +69,20 @@ func selftest() int {
 		check("полная конфигурация работает 5 с", alive, detail)
 		res := probeAll(svcs)
 		say("%s", statusLine(svcs, res))
+		printTable(svcs, res)
+		check("пинг измеряется", avgPing(res) > 0, "ни один сайт не ответил")
 		w.Stop()
 	}
-	px := &TGProxy{Secret: make([]byte, 16)}
+	px := &tg.TGProxy{Secret: make([]byte, 16)}
 	err = px.Listen("127.0.0.1:0")
 	check("прокси Telegram слушает порт", err == nil, fmt.Sprint(err))
 	if err == nil {
+		// настоящий запрос к Telegram (DC2) через прокси - не критично, сеть CI может не пустить
+		if d, cerr := tg.Check(px.Addr(), px.Secret, 2); cerr == nil {
+			say("[+] Telegram ответил через прокси за %d мс", d.Milliseconds())
+		} else {
+			say("[!] Telegram через прокси: %v (не критично)", cerr)
+		}
 		px.Close()
 	}
 	_, verOK := latestVersion()

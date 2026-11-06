@@ -90,7 +90,7 @@ func startBypass(mode int, reselect bool) {
 	runMode = mode
 	settings.LastMode = mode
 	saveSettings()
-	setStatus("Запускаю обход...")
+	setStatus("Starting…")
 	stopOthers()
 	svcs := mustPrepare()
 	checkConflicts()
@@ -138,9 +138,9 @@ func printTable(svcs []Service, res map[string]SvcResult) {
 		r := res[s.Name]
 		line := fmt.Sprintf("  [%s] %s", mark(r.OK), pad(s.Name, 11))
 		if r.OK {
-			line += col(cGreen, "доступен")
+			line += col(cGreen, "ping "+pingLabel(r))
 		} else {
-			line += col(cRed, r.Reason)
+			line += col(cRed, "ping none") + " · " + r.Reason
 		}
 		if r.DNSBad {
 			line += col(cYellow, "  (+ DNS провайдера врёт)")
@@ -167,7 +167,7 @@ func testStrategies(list []Strategy, cands []Service, stopWhenAll bool) map[stri
 		if cancelled() {
 			fail("Отменено.")
 		}
-		setStatus(fmt.Sprintf("Подбор стратегий: %d из %d", i+1, len(list)))
+		setStatus(fmt.Sprintf("Testing strategies: %d/%d", i+1, len(list)))
 		fmt.Fprintf(out, "  %s %-42s ", col(cGray, fmt.Sprintf("[%2d/%d]", i+1, len(list))), st.Name)
 		w, err := startWinws(testArgs(st))
 		if err != nil {
@@ -238,7 +238,7 @@ func coverGroups(list []Strategy, cands []Service, works map[string]map[string]b
 
 // selectConfig подбирает стратегии; prev - старые настройки (свои стратегии для сайтов сохраняются)
 func selectConfig(svcs []Service, prev *Config) *Config {
-	setStatus("Проверяю сайты...")
+	setStatus("Checking sites…")
 	base := diagnose(svcs)
 	cfg := &Config{Created: time.Now(), Unfixable: map[string]string{}, ISP: currentISP().ASN}
 	if prev != nil {
@@ -376,10 +376,13 @@ func plainStatus(svcs []Service, res map[string]SvcResult) string {
 			bad = append(bad, s.Name)
 		}
 	}
-	m := map[int]string{modeNoVPN: "без VPN", modeWithVPN: "вместе с VPN"}[runMode]
-	s := fmt.Sprintf("Обход работает (%s): открывается %d из %d", m, ok, total)
+	m := map[int]string{modeNoVPN: "no VPN", modeWithVPN: "with VPN"}[runMode]
+	s := fmt.Sprintf("Running (%s): %d/%d up", m, ok, total)
+	if p := avgPing(res); p > 0 {
+		s += fmt.Sprintf(" · ping ~%d ms", p)
+	}
 	if len(bad) > 0 {
-		s += " - не открывается: " + strings.Join(bad, ", ")
+		s += " · none: " + strings.Join(bad, ", ")
 	}
 	return s
 }
@@ -403,7 +406,7 @@ func runForever(cfg *Config, svcs []Service, e *engineRun) {
 		clearResults()
 		w.Stop()
 		stopTelegram()
-		setStatus("Обход выключен")
+		setStatus("Bypass off")
 	}()
 
 	exp := expectedServices(cfg, svcs)
