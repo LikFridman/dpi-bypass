@@ -374,7 +374,10 @@ func hostOf(u string) string {
 	return u
 }
 
-// telegram: как приложение - MTProto к серверу DC2
+// telegram: так, как Telegram работает через обход. Серверы Telegram (DC) у большинства провайдеров
+// заблокированы по IP - стратегия обхода DPI это не исправит, поэтому главный путь - WebSocket к
+// web.telegram.org (TLS, его маскирует стратегия). Сначала WebSocket, затем, если не вышло, прямой
+// MTProto к DC2 (там, где серверы не заблокированы). Ошибка прямого пути - «блок по IP», не DPI.
 func telegram(ctx context.Context, dial Dial) Result {
 	r := Result{}
 	dl, _ := ctx.Deadline()
@@ -382,17 +385,20 @@ func telegram(ctx context.Context, dial Dial) Result {
 	if t > 12*time.Second {
 		t = 12 * time.Second
 	}
-	d, err := tg.CheckDC(func(addr string) (net.Conn, error) { return dial(ctx, "tcp", addr) }, 2, t)
-	if err != nil {
-		st, rs := classify(err, 0, "data")
-		if strings.Contains(err.Error(), "SOCKS") || strings.Contains(err.Error(), "refused") {
-			st, rs = "tcp", "серверы Telegram недоступны (блок по IP)"
+	d1 := func(addr string) (net.Conn, error) { return dial(ctx, "tcp", addr) }
+	if d, err := tg.CheckWS(d1, t); err == nil {
+		r.OK, r.Stage, r.Ping, r.What = true, "ok", int(d.Milliseconds()), "WebSocket web.telegram.org"
+		return r
+	} else {
+		wsErr := err
+		if d2, err := tg.CheckDC(d1, 2, t/2+time.Second); err == nil {
+			r.OK, r.Stage, r.Ping, r.What = true, "ok", int(d2.Milliseconds()), "MTProto DC2"
+			return r
 		}
-		r.Stage, r.Reason = st, "MTProto: "+rs
+		st, rs := classify(wsErr, 0, "tls")
+		r.Stage, r.Reason = st, "WebSocket web.telegram.org: "+rs
 		return r
 	}
-	r.OK, r.Stage, r.Ping, r.What = true, "ok", int(d.Milliseconds()), "MTProto DC2"
-	return r
 }
 
 // RunAll проверяет несколько сервисов параллельно

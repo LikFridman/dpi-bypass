@@ -432,8 +432,11 @@ object Engine {
             // быстрый подбор: хватит, если одна стратегия открыла всё, или после 4 лучших у каждого
             // сервиса есть рабочая; иначе - перебор дальше (обычный режим)
             val covered = cands.all { c -> light.values.any { it[c.name]?.ok == true } }
-            if (covered && (cands.all { r[it.name]?.ok == true } || i + 1 >= 4)) {
-                log("Быстрый подбор: хватило ${i + 1} из ${order.size} стратегий")
+            // Telegram не держит подбор: если после 4 стратегий открыто всё, кроме него, - хватит
+            // (он работает через WebSocket/прокси программы, а серверы часто закрыты по IP)
+            val coveredNoTg = cands.filter { it.name != "Telegram" }.all { c -> light.values.any { it[c.name]?.ok == true } }
+            if ((covered && (cands.all { r[it.name]?.ok == true } || i + 1 >= 4)) || (coveredNoTg && i + 1 >= 4 && cands.size > 1)) {
+                log("Быстрый подбор: хватило ${i + 1} из ${order.size} стратегий" + if (!covered) " (Telegram - через прокси программы)" else "")
                 break
             }
             if (i + 1 == 4) log("Быстрый подбор открыл не всё - перебираю остальные стратегии")

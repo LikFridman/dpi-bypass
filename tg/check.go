@@ -95,3 +95,19 @@ func CheckDC(dial func(addr string) (net.Conn, error), dc int, timeout time.Dura
 	defer px.Close()
 	return CheckTimeout(px.Addr(), secret, dc, timeout)
 }
+
+// CheckWS - путь, которым Telegram реально работает через обход: WebSocket к web.telegram.org
+// (TLS, его и маскирует стратегия), затем MTProto-запрос req_pq к DC2 через него.
+// dial - как соединяться (напрямую, через SOCKS byedpi и т.п.). Возвращает время ответа сервера Telegram.
+func CheckWS(dial func(addr string) (net.Conn, error), timeout time.Duration) (time.Duration, error) {
+	px := &TGProxy{Secret: make([]byte, 16)}
+	route := TGRoute{Name: "WebSocket", WS: func(dc int, media, test bool) (*wsConn, string, error) {
+		return px.dialWSVia(dc, media, test, dial)
+	}}
+	px.Routes = func() []TGRoute { return []TGRoute{route} }
+	if err := px.Listen("127.0.0.1:0"); err != nil {
+		return 0, err
+	}
+	defer px.Close()
+	return CheckTimeout(px.Addr(), px.Secret, 2, timeout)
+}

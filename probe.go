@@ -299,12 +299,17 @@ func probeService(s Service) SvcResult {
 	// Telegram: приложение ходит не на сайт, а по MTProto прямо к серверам DC -
 	// проверяем так же (req_pq к DC2); пинг - время ответа сервера Telegram
 	if s.Name == "Telegram" {
+		// как Telegram ходит через обход: WebSocket к web.telegram.org (его маскирует стратегия),
+		// затем - прямо к DC2 (там, где серверы Telegram не закрыты по IP)
 		dial := func(addr string) (net.Conn, error) { return newDialer(dialTO).Dial("tcp4", addr) }
-		if d, err := tg.CheckDC(dial, 2, totalTO); err == nil {
+		if d, err := tg.CheckWS(dial, totalTO); err == nil {
+			res.OK, res.Stage, res.Reason = true, StOK, ""
+			res.Ms = int(d.Milliseconds())
+		} else if d, err2 := tg.CheckDC(dial, 2, totalTO/2+time.Second); err2 == nil {
 			res.OK, res.Stage, res.Reason = true, StOK, ""
 			res.Ms = int(d.Milliseconds())
 		} else if !res.OK {
-			res.Reason += "; MTProto: " + err.Error()
+			res.Reason += "; WebSocket: " + shortErr(err) + "; MTProto: " + shortErr(err2)
 		}
 	}
 	return res

@@ -405,7 +405,11 @@ func selectConfig(svcs []Service, prev *Config) *Config {
 	}
 	groups, remaining := coverGroups(fast, cands, works)
 	list = append(append([]Strategy{}, fast...), rest...)
-	if len(remaining) > 0 && len(rest) > 0 && !cancelled() {
+	// только Telegram не открылся - полный перебор не нужен: он идёт через WebSocket/прокси программы,
+	// а серверы Telegram обычно закрыты по IP (стратегия это не исправит)
+	if len(remaining) == 1 && remaining["Telegram"] {
+		info("Telegram стратегиями не открылся - он пойдёт через прокси программы (WebSocket / найденные прокси)")
+	} else if len(remaining) > 0 && len(rest) > 0 && !cancelled() {
 		var left []Service
 		ytLeft := false
 		for _, s := range cands {
