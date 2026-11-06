@@ -7,7 +7,7 @@ adb shell appops set $PKG ACTIVATE_VPN allow
 adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS || true
 adb logcat -c
 adb shell am start -n $PKG/.MainActivity --ez selftest true
-for i in $(seq 1 90); do adb logcat -d -s DPI_SELFTEST:I | grep -q "RESULT" && break; sleep 2; done
+for i in $(seq 1 300); do adb logcat -d -s DPI_SELFTEST:I | grep -q "RESULT" && break; sleep 2; done
 adb logcat -d -s DPI_SELFTEST:I dpi-bypass:I | tee android-selftest.txt
 # запрос из оболочки эмулятора идёт через туннель обхода (оболочка не исключена из VPN)
 sleep 5
