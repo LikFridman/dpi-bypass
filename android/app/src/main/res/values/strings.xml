@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">dpi-bypass</string>
+    <string name="tile_label">Обход DPI</string>
+    <string name="notif_channel">Работа обхода</string>
+    <string name="notif_on">Обход включён</string>
+    <string name="notif_stop">Выключить</string>
+</resources>

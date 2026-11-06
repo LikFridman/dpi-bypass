@@ -11,6 +11,8 @@ on:
       - "dpi-bypass.exe"
       - "dpi-bypass.exe.sha256"
       - "dpi-bypass.version"
+      - "dpi-bypass.apk"
+      - "dpi-bypass.apk.sha256"
       - "docs/**"
       - "go.sum"
       - "update/**"
@@ -133,3 +135,88 @@ jobs:
             dpi-bypass.exe
             dpi-bypass.exe.sha256
           generate_release_notes: true
+
+  # ---------------- Android ----------------
+  android:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Исходники движков (byedpi, hev-socks5-tunnel)
+        run: |
+          mkdir -p deps && cd deps
+          git clone -q https://github.com/hufrea/byedpi.git byedpi
+          git -C byedpi checkout -q e2684772fbda45f2ff4fc220922a010370534216
+          git clone -q https://github.com/heiher/hev-socks5-tunnel.git hev
+          git -C hev checkout -q 21bb3d77e64ad5a413d4d851b9f4cacf2098cd77
+          git -C hev submodule update -q --init --recursive
+
+      - name: Движки (Android NDK)
+        run: bash android/native/build.sh deps
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Свой ключ подписи (если задан в секретах)
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+            echo "KEYSTORE_FILE=$RUNNER_TEMP/release.p12" >> "$GITHUB_ENV"
+          fi
+
+      - name: Сборка APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          export APP_VERSION="$(sed -n 's/^var version = "\([^"]*\)".*/\1/p' main.go)"
+          gradle -p android assembleRelease --no-daemon --stacktrace
+          cp android/app/build/outputs/apk/release/app-release.apk dpi-bypass.apk
+          sha256sum dpi-bypass.apk | tee dpi-bypass.apk.sha256
+
+      - name: KVM для эмулятора
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Проверка в эмуляторе Android и снимки экрана
+        id: emu
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: false
+          script: bash android/emulator-test.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dpi-bypass-android
+          path: |
+            dpi-bypass.apk
+            dpi-bypass.apk.sha256
+            android-selftest.txt
+            docs/screens
+
+      - name: Положить APK в репозиторий
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f dpi-bypass.apk dpi-bypass.apk.sha256
+          if ls docs/screens/android-*.png >/dev/null 2>&1; then git add -f docs/screens/android-*.png; fi
+          if git diff --cached --quiet; then echo "без изменений"; exit 0; fi
+          git commit -m "Сборка dpi-bypass.apk (GitHub Actions) [skip ci]"
+          git pull --rebase origin main
+          git push origin HEAD:main

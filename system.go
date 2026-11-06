@@ -25,11 +25,14 @@ import (
 // ---------- настройки ----------
 
 type Settings struct {
-	Tray     bool `json:"tray"`      // сворачивать в трей
-	LastMode int  `json:"last_mode"` // какой режим был включён последним (для автозапуска)
+	Tray     bool   `json:"tray"`      // сворачивать в трей
+	LastMode int    `json:"last_mode"` // какой режим был включён последним (для автозапуска)
+	BgFile   string `json:"bg_file"`   // своя картинка фона (в папке dpi-bypass-data)
+	BgDim    int    `json:"bg_dim"`    // затемнение фона, %
+	BgBlur   int    `json:"bg_blur"`   // размытие фона, px
 }
 
-var settings = Settings{Tray: true, LastMode: modeWithVPN}
+var settings = Settings{Tray: true, LastMode: modeWithVPN, BgDim: 45}
 
 func settingsPath() string { return filepath.Join(dataDir, "settings.json") }
 

@@ -551,6 +551,27 @@ func webCall(cmd, arg string) (any, error) {
 	case "tray":
 		settings.Tray = arg == "1"
 		saveSettings()
+	case "bgGet":
+		return bgInfo(), nil
+	case "bgSet":
+		if err := saveBackground(arg); err != nil {
+			uiToast("Не получилось поставить фон: " + err.Error())
+			return nil, nil
+		}
+		uiToast("Фон обновлён")
+		return bgInfo(), nil
+	case "bgClear":
+		if settings.BgFile != "" {
+			os.Remove(filepath.Join(dataDir, settings.BgFile))
+		}
+		settings.BgFile = ""
+		saveSettings()
+		return bgInfo(), nil
+	case "bgOpts":
+		var d, b int
+		fmt.Sscanf(arg, "%d:%d", &d, &b)
+		settings.BgDim, settings.BgBlur = clampInt(d, 0, 90), clampInt(b, 0, 30)
+		saveSettings()
 	case "reset":
 		go func() {
 			if !uiConfirm("Сбросить настройки?\nОбход выключится, стратегии подберутся заново при следующем включении.") {

@@ -29,6 +29,17 @@ button{cursor:pointer}
 .b2{right:-8%;bottom:-22%;width:56vw;height:56vw;background:#9b3bff;opacity:.5;animation:drift2 44s ease-in-out infinite alternate}
 .b3{right:24%;top:-28%;width:38vw;height:38vw;background:#00c2c7;opacity:.33;animation:drift3 52s ease-in-out infinite alternate}
 body.native .b1{opacity:.3}body.native .b2{opacity:.28}body.native .b3{opacity:.18}
+/* свой фон */
+.bgimg{position:fixed;inset:-40px;z-index:0;background:center/cover no-repeat;opacity:0;transform:scale(1.06);transition:opacity .9s var(--ease),transform 1.4s var(--ease),filter .4s;pointer-events:none}
+.bgimg.on{opacity:1;transform:scale(1)}
+.bgdim{position:fixed;inset:0;z-index:0;pointer-events:none;background:radial-gradient(120% 90% at 70% 20%,rgba(5,7,20,calc(var(--dim) * .7)),rgba(5,7,20,var(--dim)));opacity:0;transition:opacity .6s}
+body.hasbg .bgdim{opacity:1}
+body.hasbg .blob{opacity:.12!important}
+body.hasbg{--glass:rgba(12,14,34,.42);background:#05060f}
+.bgprev{width:132px;height:74px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.06) center/cover no-repeat;flex:none}
+.drop{position:fixed;inset:14px;z-index:40;border-radius:26px;border:2px dashed rgba(142,164,255,.8);background:rgba(20,26,70,.55);backdrop-filter:blur(8px);display:grid;place-items:center;font-size:20px;font-weight:700;opacity:0;pointer-events:none;transition:opacity .25s}
+.drop.on{opacity:1}
+input[type=range]{accent-color:var(--accent);width:180px}
 @keyframes drift1{to{transform:translate(12vw,10vh) scale(1.15)}}
 @keyframes drift2{to{transform:translate(-14vw,-8vh) scale(.9)}}
 @keyframes drift3{to{transform:translate(-10vw,16vh) scale(1.2)}}
@@ -177,6 +188,8 @@ h2{margin:0;font-size:15px;font-weight:700}
 </style>
 </head>
 <body>
+<div class="bgimg" id="bgimg" aria-hidden="true"></div><div class="bgdim" aria-hidden="true"></div>
+<div class="drop" id="drop">Отпусти картинку — она станет фоном</div>
 <div class="bg" aria-hidden="true"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div></div>
 
 <div class="app">
@@ -297,6 +310,12 @@ h2{margin:0;font-size:15px;font-weight:700}
         <div class="set"><div><b>Сворачивать в трей</b><span>при сворачивании и закрытии окно уходит в значок у часов</span></div><button class="tog sm" id="togTray" aria-label="Сворачивать в трей"><i></i></button></div>
       </div>
       <div class="card glass pad st" style="--i:2">
+        <div class="set"><div style="display:flex;gap:14px;align-items:center"><div class="bgprev" id="bgPrev"></div><div><b>Фон окна</b><span>своя картинка; можно просто перетащить её в окно</span></div></div>
+          <div class="row"><input type="file" id="bgFile" accept="image/*" style="display:none"><button class="btn" id="bgPick">Выбрать картинку</button><button class="btn" id="bgClear">Убрать</button></div></div>
+        <div class="set"><div><b>Затемнение фона</b><span id="dimLbl">45%</span></div><input type="range" id="bgDim" min="0" max="90" value="45" aria-label="Затемнение фона"></div>
+        <div class="set"><div><b>Размытие фона</b><span id="blurLbl">0 px</span></div><input type="range" id="bgBlur" min="0" max="30" value="0" aria-label="Размытие фона"></div>
+      </div>
+      <div class="card glass pad st" style="--i:3">
         <div class="set"><div><b>Обновления</b><span id="updLine">проверяю...</span></div><button class="btn" data-a="update">Проверить</button></div>
         <div class="set"><div><b>Диагностика</b><span>что и как заблокировано, VPN, адаптеры, провайдер</span></div><button class="btn" data-a="diag">Запустить</button></div>
         <div class="set"><div><b>Поделиться результатом</b><span>готовый текст на GitHub: провайдер и сработавшие стратегии, без личных данных</span></div><button class="btn" data-a="share">Открыть</button></div>
@@ -456,6 +475,39 @@ window.__push=function(m){
 window.addEventListener("error",e=>call("jsError",(e.message||"")+" @"+(e.lineno||"")));
 window.addEventListener("resize",movePill);
 if(window.__native&&window.__native.glass)document.body.classList.add("native");
+
+/* ---------- свой фон ---------- */
+let BG={url:"",dim:45,blur:0},optT=0;
+function applyBg(b){
+  if(!b)return;BG=b;
+  const has=!!b.url,img=$("#bgimg");
+  document.body.classList.toggle("hasbg",has);
+  if(has){document.body.classList.remove("native");img.style.backgroundImage='url("'+b.url+'")';requestAnimationFrame(()=>img.classList.add("on"))}
+  else{img.classList.remove("on");setTimeout(()=>{if(!BG.url)img.style.backgroundImage=""},900);if(window.__native&&window.__native.glass)document.body.classList.add("native")}
+  $("#bgPrev").style.backgroundImage=has?'url("'+b.url+'")':"";
+  $("#bgDim").value=b.dim;$("#bgBlur").value=b.blur;paintBgOpts();
+}
+function paintBgOpts(){
+  const d=+$("#bgDim").value,bl=+$("#bgBlur").value;
+  document.documentElement.style.setProperty("--dim",(d/100).toFixed(2));
+  $("#bgimg").style.filter=bl?"blur("+bl+"px)":"";
+  $("#dimLbl").textContent=d+"%";$("#blurLbl").textContent=bl+" px";
+}
+["#bgDim","#bgBlur"].forEach(s=>$(s).addEventListener("input",()=>{paintBgOpts();clearTimeout(optT);optT=setTimeout(()=>call("bgOpts",$("#bgDim").value+":"+$("#bgBlur").value),300)}));
+function useFile(f){
+  if(!f||!/^image\//.test(f.type)){toast("Это не картинка");return}
+  if(f.size>15*1024*1024){toast("Картинка больше 15 МБ");return}
+  const r=new FileReader();r.onload=()=>call("bgSet",r.result).then(applyBg);r.readAsDataURL(f);
+}
+$("#bgPick").addEventListener("click",()=>$("#bgFile").click());
+$("#bgFile").addEventListener("change",e=>{useFile(e.target.files[0]);e.target.value=""});
+$("#bgClear").addEventListener("click",()=>call("bgClear").then(applyBg));
+let dragN=0;
+window.addEventListener("dragenter",e=>{e.preventDefault();dragN++;$("#drop").classList.add("on")});
+window.addEventListener("dragleave",e=>{e.preventDefault();if(--dragN<=0){dragN=0;$("#drop").classList.remove("on")}});
+window.addEventListener("dragover",e=>e.preventDefault());
+window.addEventListener("drop",e=>{e.preventDefault();dragN=0;$("#drop").classList.remove("on");useFile(e.dataTransfer.files[0])});
+call("bgGet").then(applyBg);
 go("home");
 requestAnimationFrame(movePill);
 call("ready").then(m=>{if(m)window.__push(m)});
