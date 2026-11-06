@@ -232,6 +232,16 @@ object Report {
                 th.start()
                 runCatching { th.join(5000) }
             }
+            // ошибка в фоновом потоке: записана и отправлена, приложение работает дальше (не закрываем его
+            // из-за одной упавшей проверки); падение главного потока - как обычно
+            if (t !== android.os.Looper.getMainLooper().thread) {
+                runCatching {
+                    Engine.err("Ошибка в фоне (${t.name}): ${e.javaClass.simpleName}: ${e.message} - приложение продолжает работу")
+                    Engine.busy = false
+                    Engine.pinging = false
+                }
+                return
+            }
             prev?.uncaughtException(t, e)
         }
     }

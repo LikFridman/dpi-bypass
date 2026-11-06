@@ -231,7 +231,14 @@ object Engine {
             if (quick) cmd += "-quick"
             if (useDoH) cmd += "-doh"
             val p = ProcessBuilder(cmd).redirectErrorStream(true).start()
-            val killer = Thread { if (!p.waitFor(60, TimeUnit.SECONDS)) p.destroyForcibly() }.apply { isDaemon = true; start() }
+            // сторож: зависшую проверку - убить через 60 с. Прерывание сторожа (проверка закончилась раньше)
+            // бросает InterruptedException - без перехвата оно роняло всё приложение (краш после Ping all / Test)
+            val killer = Thread {
+                try {
+                    if (!p.waitFor(60, TimeUnit.SECONDS)) p.destroyForcibly()
+                } catch (_: InterruptedException) {
+                }
+            }.apply { isDaemon = true; start() }
             p.inputStream.bufferedReader().forEachLine { line ->
                 if (line.startsWith("SITE ")) runCatching {
                     val j = JSONObject(line.removePrefix("SITE "))
