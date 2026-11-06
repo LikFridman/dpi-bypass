@@ -71,6 +71,20 @@ h2{margin:0;font-size:15px;font-weight:700}
 .r:last-child{border-bottom:0}
 .r .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .r .sg{color:var(--dim);font-size:12px}
+.r.click{cursor:pointer}.r.click:active{background:rgba(255,255,255,.06)}
+.r .nm small{display:block;font-size:11.5px;color:var(--dim);white-space:normal;line-height:1.35;margin-top:2px}
+.r .nm small.e{color:#fca5a5}
+.chips{display:flex;gap:6px}.chip{min-height:30px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.06);font-size:12px;font-weight:600}
+.chip.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.log .d{color:var(--dim)}
+.sheet{position:fixed;inset:0;z-index:30;background:rgba(5,7,20,.6);display:none;align-items:flex-end}
+.sheet.on{display:flex}
+.sheet .box{width:100%;max-height:86vh;display:flex;flex-direction:column;border-radius:24px 24px 0 0;background:rgba(18,21,48,.98);border:1px solid var(--line);padding:16px 14px calc(var(--bot) + 14px);gap:10px}
+.sheet .lst{overflow-y:auto;flex:1;min-height:0}
+.st{display:flex;align-items:center;gap:8px;padding:10px 4px;border-bottom:1px solid var(--sep)}
+.st .nm{flex:1;min-width:0}.st .nm b{font-size:13.5px;display:block}.st .nm small{font-size:11px;color:var(--dim);font-family:var(--mono);word-break:break-all}
+.st.cur{background:rgba(111,140,255,.14);border-radius:12px}
+.st .btn{min-height:32px;padding:0 10px;font-size:12px}
 .bd{font-size:11px;font-weight:600;padding:4px 10px;border-radius:999px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .bd.ok,.bd.custom{background:rgba(52,211,153,.16);color:var(--okText)}
 .bd.vpn{background:rgba(251,191,36,.16);color:var(--warnText)}
@@ -143,15 +157,16 @@ input[type=range]{accent-color:var(--accent);width:100%}
         <div class="ch"><h2>Sites</h2><span class="dim" style="font-size:12px" id="cnt"></span></div>
         <div id="homeSites"></div>
       </div>
-      <div class="row"><button class="btn" data-a="reselect">Re-tune</button><button class="btn" data-a="diag">Diagnostics</button></div>
+      <div class="row"><button class="btn pri" data-a="pingAll" id="pingBtn">Ping all</button><button class="btn" data-a="reselect">Re-tune</button></div>
       <div class="card glass pad note">На Android одновременно может работать только один VPN. Пока обход включён, он заменяет другой VPN (например, Happ). Сайты, заблокированные по IP, без настоящего VPN не откроются.</div>
     </section>
 
     <section class="page" id="p-sites">
-      <div class="head"><h1>Sites</h1></div>
+      <div class="head"><h1>Sites</h1><button class="btn pri" data-a="pingAll" style="min-height:36px">Ping all</button></div>
+      <div class="note">Нажми на сервис, чтобы выбрать стратегию вручную, проверить любую или закрепить.</div>
       <div class="card glass"><div id="allSites"></div></div>
       <div class="card glass pad"><div class="dim" style="font-size:12px">STRATEGY</div><div id="stratName" style="margin-top:4px;font-weight:600">—</div><div class="dim" id="ytSpeed" style="font-size:12px;margin-top:4px"></div></div>
-      <div class="row"><button class="btn pri" data-a="reselect">Re-tune</button><button class="btn" data-a="stop">Stop</button></div>
+      <div class="row"><button class="btn" data-a="reselect">Re-tune</button><button class="btn" data-a="stop">Stop</button><button class="btn" data-a="diag">No bypass check</button></div>
     </section>
 
     <section class="page" id="p-tg">
@@ -185,7 +200,7 @@ input[type=range]{accent-color:var(--accent);width:100%}
     </section>
 
     <section class="page" id="p-log">
-      <div class="head"><h1>Log</h1><button class="btn" data-a="diag" style="min-height:36px">Diagnostics</button></div>
+      <div class="head"><h1>Log</h1><div class="chips"><button class="chip on" data-lv="ie">Summary</button><button class="chip" data-lv="e">Errors</button><button class="chip" data-lv="ied">All</button></div></div>
       <div class="card glass" style="flex:none"><div class="log" id="fullLog"></div></div>
     </section>
 
@@ -222,6 +237,12 @@ input[type=range]{accent-color:var(--accent);width:100%}
   <button class="tab" data-p="set"><svg width="22" height="22" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Settings</button>
 </nav>
 <div class="toasts" id="toasts"></div>
+<div class="sheet" id="sheet"><div class="box">
+  <div class="head" style="min-height:0"><h2 id="shTitle">—</h2><button class="btn" id="shClose" style="min-height:34px">Close</button></div>
+  <div class="dim" id="shInfo" style="font-size:12.5px"></div>
+  <div class="row"><button class="btn" id="shAuto">Auto</button></div>
+  <div class="lst" id="shList"></div>
+</div></div>
 <div class="agr" id="agr" role="dialog" aria-modal="true">
   <div class="txt glass" id="agrText"></div>
   <div class="row"><button class="btn" id="agrNo">Закрыть</button><button class="btn pri" id="agrYes">Принять</button></div>
@@ -262,8 +283,10 @@ function toast(t){const d=document.createElement("div");d.className="toast";d.te
 function badge(k){$("#badge").className="badge "+(k==="off"?"":k);[["ok","#icOk"],["off","#icOff"],["busy","#icBusy"],["warn","#icWarn"]].forEach(([n,s])=>$(s).classList.toggle("hide",n!==k))}
 function rows(box,list,strat){
   box.replaceChildren(...list.map(s=>{
-    const r=document.createElement("div");r.className="r";
-    const n=document.createElement("span");n.className="nm";n.textContent=s.name;r.appendChild(n);
+    const r=document.createElement("div");r.className="r click";r.onclick=()=>openSheet(s.name);
+    const n=document.createElement("span");n.className="nm";n.textContent=s.name;
+    if(s.detail){const d=document.createElement("small");d.textContent=s.detail;if(s.kind==="bad")d.className="e";n.appendChild(d)}
+    r.appendChild(n);
     if(strat&&s.strategy){const g=document.createElement("span");g.className="sg";g.textContent=s.strategy;r.appendChild(g)}
     const b=document.createElement("span");b.className="bd "+s.kind;b.textContent=s.label;r.appendChild(b);return r}));
 }
@@ -271,7 +294,9 @@ function apply(st){
   S=st;$("#ver").textContent="v"+st.version;$("#verLine").textContent="dpi-bypass "+st.version+" для Android";
   const on=st.running||st.starting;$("#mainTog").classList.toggle("on",on);$("#mainTog").setAttribute("aria-label",on?"Turn off":"Turn on");
   let k="off",t="Bypass off",s="Включи переключателем сверху";
-  if(st.starting||st.busy){k="busy";t=st.running?"Running":"Please wait…";s=st.status}
+  $$("[data-a=pingAll]").forEach(b=>{b.disabled=!!st.pinging;b.textContent=st.pinging?"Pinging…":"Ping all"});
+  if(st.pinging){k="busy";t="Ping all…";s="Проверяю все сервисы: видео, файлы CDN, шлюзы"}
+  else if(st.starting||st.busy){k="busy";t=st.running?"Running":"Please wait…";s=st.status}
   else if(st.running){if(st.sitesTotal&&st.sitesOk<st.sitesTotal){k="warn";t="Some sites don't respond"}else{k="ok";t="All sites respond"};s=st.status+(st.checked?" · "+st.checked:"")}
   badge(k);$("#heroT").textContent=t;$("#heroS").textContent=s;
   const p=st.progress||{};$("#prog").classList.toggle("on",!!p.total);$("#progBar").style.width=p.total?Math.round(p.cur*100/p.total)+"%":"0";
@@ -300,8 +325,29 @@ function apply(st){
   if(pj!==lastProx){lastProx=pj;const l=st.tgProxies||[];$("#tgProxies").textContent=l.length?l.join("\n"):"—"}
   if(document.activeElement!==$("#tgWorker"))$("#tgWorker").value=st.tgWorker||"";
 }
-function cls(l){if(/ошибк|не удалось|FAIL|не запустил|не ответил|^.{10}-/i.test(l))return"e";if(/^.{10}\+|работает|отвечает/.test(l))return"g";if(/==/.test(l))return"h";return""}
-function logs(lines){const box=$("#fullLog");const f=document.createDocumentFragment();lines.forEach(l=>{const d=document.createElement("div");const c=cls(l);if(c)d.className=c;d.textContent=l;f.appendChild(d)});box.appendChild(f);while(box.childElementCount>500)box.firstElementChild.remove()}
+/* журнал: строка "<уровень>\t<время>  <текст>", уровни i/e/d */
+let logLv="ie";const logAll=[];
+function logEl(x){const d=document.createElement("div");d.className=x.lv==="e"?"e":x.lv==="d"?"d":(/━━/.test(x.t)?"h":(/✓/.test(x.t)?"g":""));d.textContent=x.t;d.dataset.lv=x.lv;if(!logLv.includes(x.lv))d.style.display="none";return d}
+function logs(lines){const box=$("#fullLog");const f=document.createDocumentFragment();lines.forEach(l=>{const lv=l[1]==="\t"?l[0]:"i";const x={lv,t:l[1]==="\t"?l.slice(2):l};logAll.push(x);f.appendChild(logEl(x))});box.appendChild(f);while(box.childElementCount>1500){box.firstElementChild.remove();logAll.shift()}
+  if(page==="log"){const p=$("#p-log");p.scrollTop=p.scrollHeight}}
+$$("[data-lv]").forEach(c=>c.addEventListener("click",()=>{logLv=c.dataset.lv;$$("[data-lv]").forEach(x=>x.classList.toggle("on",x===c));$$("#fullLog>div").forEach(d=>d.style.display=logLv.includes(d.dataset.lv)?"":"none");const p=$("#p-log");p.scrollTop=p.scrollHeight}));
+
+/* окно выбора стратегии для сервиса */
+let shSite="";
+function openSheet(site){shSite=site;$("#shTitle").textContent=site;$("#sheet").classList.add("on");loadSheet()}
+$("#shClose").onclick=()=>{$("#sheet").classList.remove("on");shSite=""};
+$("#sheet").addEventListener("click",e=>{if(e.target.id==="sheet"){$("#sheet").classList.remove("on");shSite=""}});
+$("#shAuto").onclick=()=>call("pin",shSite+"|");
+function stLine(x){if(!x.tested)return["—","idle"];if(x.ok)return[(x.kbps>=1024?(x.kbps/1024).toFixed(1)+" MB/s":x.kbps+" KB/s")+(x.full?"":" ~"),"ok"];return["✗ "+(x.stage||""),"bad"]}
+function loadSheet(){call("siteStrategies",shSite).then(d=>{if(!d)return;
+  $("#shInfo").textContent=(d.pinned?"Закреплена вручную: "+d.pinned:"Автоматический выбор")+(d.current?" · сейчас: "+d.current:"")+" · ~ быстрая проверка, без ~ полная";
+  const L=d.list.slice().sort((a,b)=>(b.ok-a.ok)||(b.kbps-a.kbps)||(b.tested-a.tested));
+  $("#shList").replaceChildren(...L.map(x=>{const r=document.createElement("div");r.className="st"+(x.id===d.current?" cur":"");
+    const n=document.createElement("div");n.className="nm";const b=document.createElement("b");b.textContent=x.id+" · "+x.name;const sm=document.createElement("small");sm.textContent=x.args+(x.reason&&!x.ok?" — "+x.reason:"");n.append(b,sm);r.appendChild(n);
+    const [t,k]=stLine(x);const bd=document.createElement("span");bd.className="bd "+k;bd.textContent=t;r.appendChild(bd);
+    const tb=document.createElement("button");tb.className="btn";tb.textContent="Test";tb.onclick=()=>{tb.textContent="…";call("testStrategy",shSite+"|"+x.id)};r.appendChild(tb);
+    const ub=document.createElement("button");ub.className="btn"+(x.id===d.pinned?" pri":"");ub.textContent="Use";ub.onclick=()=>call("pin",shSite+"|"+x.id);r.appendChild(ub);
+    return r}))})}
 /* пользовательское соглашение */
 function mdHtml(t){
   const esc=x=>x.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -325,7 +371,7 @@ $("#agrYes").addEventListener("click",()=>{agrOpen=false;agrMust=false;$("#agr")
 $("#agrNo").addEventListener("click",()=>{if(agrMust)return;agrOpen=false;$("#agr").classList.remove("on")});
 $("#agrShow").addEventListener("click",()=>showAgreement(false));
 
-window.__push=m=>{if(m.state)apply(m.state);if(m.state&&m.state.needConsent&&!agrOpen&&!agrDone)showAgreement(true);if(m.logs)logs(m.logs);(m.events||[]).forEach(e=>{if(e.t==="consent")showAgreement(true);if(e.t==="toast")toast(e.text);if(e.t==="go")go(e.p)})};
+window.__push=m=>{if(m.state)apply(m.state);if(m.state&&m.state.needConsent&&!agrOpen&&!agrDone)showAgreement(true);if(m.logs)logs(m.logs);(m.events||[]).forEach(e=>{if(e.t==="stratUpdated"&&shSite)loadSheet();if(e.t==="consent")showAgreement(true);if(e.t==="toast")toast(e.text);if(e.t==="go")go(e.p)})};
 
 /* фон */
 function applyBg(b){if(!b)return;const has=!!b.url,img=$("#bgimg");document.body.classList.toggle("hasbg",has);

@@ -5,20 +5,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
-import java.net.ConnectException
-import java.net.HttpURLConnection
-import java.net.InetSocketAddress
-import java.net.Proxy
-import java.net.SocketTimeoutException
-import java.net.URL
-import java.net.UnknownHostException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import javax.net.ssl.HttpsURLConnection
-import javax.net.ssl.SSLException
 
 /** Стратегия обхода = параметры byedpi (ciadpi). */
 data class Strategy(val id: String, val name: String, val args: List<String>)
@@ -26,16 +16,32 @@ data class Strategy(val id: String, val name: String, val args: List<String>)
 /** Сайт: что проверять и какие домены к нему относятся (для маршрутизации по стратегиям). */
 data class Site(val name: String, val host: String, val domains: List<String> = emptyList())
 
-/** Результат проверки сайта. */
-data class Probe(val ok: Boolean, val kind: String, val reason: String, val ms: Int = 0) {
-    /** Подпись для списка: "42 мс" или "none", если сайт не ответил. */
+/**
+ * Результат проверки сервиса. kind: ok | dns | ip | dpi (для решений),
+ * stage: ok | dns | tcp | tls | data | throttle | http (что именно сломалось).
+ */
+data class Probe(
+    val ok: Boolean, val kind: String, val reason: String, val ms: Int = 0,
+    val stage: String = "", val kbps: Int = 0, val what: String = "",
+) {
+    /** Подпись для списка: "42 ms" или "none", если сервис не работает. */
     val label: String get() = if (ok && ms > 0) "$ms ms" else "none"
+
+    /** Одна строка: что работает и как быстро, или что сломалось */
+    val detail: String get() = when {
+        ok && kbps > 0 -> "${speedText(kbps)} · $what"
+        ok -> what
+        else -> "$stage: $reason"
+    }
 }
 
+fun speedText(kbps: Int) = if (kbps >= 1024) String.format(Locale.US, "%.1f MB/s", kbps / 1024.0) else "$kbps KB/s"
+
 /**
- * Движок: локальный SOCKS-прокси byedpi, проверка сайтов и подбор стратегии.
- * Само приложение исключено из своего VPN, поэтому проверки идут мимо туннеля -
- * так видно настоящее состояние блокировок.
+ * Движок: проверка сервисов, подбор стратегий, ручной выбор.
+ * Проверки делает Go-ядро (libtgproxy.so -check-sites): сервис считается рабочим,
+ * только если реально тянет данные (видео YouTube, файлы с CDN, шлюз Discord,
+ * MTProto Telegram), а не просто отвечает на первый запрос.
  */
 object Engine {
     const val PORT = 1080        // byedpi со стратегией по умолчанию
@@ -44,10 +50,6 @@ object Engine {
     const val ROUTER_PORT = 1090 // маршрутизатор: сюда идёт весь трафик туннеля
     const val TEST_PORT = 10801
 
-    /**
-     * Стратегии byedpi. Сначала - без подмены TTL: у мобильных операторов
-     * (Yota, МегаФон, МТС) фейковые пакеты с малым TTL часто не доходят до DPI.
-     */
     val strategies = listOf(
         Strategy("b1", "disorder 1 + tlsrec по SNI", listOf("--disorder", "1", "--tlsrec", "1+s")),
         Strategy("b3", "split + disorder по SNI", listOf("--split", "1", "--disorder", "3+s", "--mod-http", "h,d", "--tlsrec", "1+s")),
@@ -88,6 +90,7 @@ object Engine {
         Strategy("b37", "fake ttl 7 + disorder по SNI", listOf("--fake", "-1", "--ttl", "7", "--fake-sni", "www.google.com", "--disorder", "1+s")),
     )
 
+
     /** Отдельная копия byedpi для UDP (голос Discord): фейковые UDP-пакеты перед настоящими. */
     val udpArgs = listOf("--udp-fake", "6")
 
@@ -102,7 +105,9 @@ object Engine {
         Site("Telegram", "web.telegram.org", listOf("telegram.org", "t.me", "telegram.me", "telesco.pe", "tdesktop.com", "cdn-telegram.org")),
     )
 
+
     // ---------- журнал и состояние для окна ----------
+    // строка журнала: "<уровень>\t<время>  <текст>"; уровни: i - главное, e - ошибка, d - подробности
     private val logLock = Any()
     private val logLines = ArrayList<String>()
     private var logSeq = 0L
@@ -115,16 +120,19 @@ object Engine {
     @Volatile var checkedAt = 0L
     @Volatile var progCur = 0
     @Volatile var progTotal = 0
+    @Volatile var pinging = false
 
-    fun log(line: String) {
+    fun log(line: String, level: Char = 'i') {
         val t = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
         synchronized(logLock) {
-            logLines.add("$t  $line")
+            logLines.add("$level\t$t  $line")
             logSeq++
-            if (logLines.size > 1500) logLines.subList(0, 300).clear()
+            if (logLines.size > 3000) logLines.subList(0, 600).clear()
         }
         android.util.Log.i("dpi-bypass", line)
     }
+    fun err(line: String) = log(line, 'e')
+    fun dbg(line: String) = log(line, 'd')
 
     /** Строки журнала после номера [after]; возвращает (новый номер, строки). */
     fun logsSince(after: Long): Pair<Long, List<String>> = synchronized(logLock) {
@@ -143,7 +151,7 @@ object Engine {
         val p = ProcessBuilder(cmd).redirectErrorStream(true).start()
         Thread {
             try {
-                p.inputStream.bufferedReader().forEachLine { if (it.isNotBlank()) log("byedpi: $it") }
+                p.inputStream.bufferedReader().forEachLine { if (it.isNotBlank()) dbg("byedpi:$port: $it") }
             } catch (_: IOException) {
             }
         }.apply { isDaemon = true }.start()
@@ -157,60 +165,56 @@ object Engine {
         if (!p.waitFor(2, TimeUnit.SECONDS)) p.destroyForcibly()
     }
 
-    // ---------- проверка сайтов ----------
+    // ---------- проверка сервисов (Go-ядро) ----------
 
-    fun probe(host: String, socksPort: Int?): Probe {
-        val proxy = if (socksPort == null) Proxy.NO_PROXY
-                    else Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", socksPort))
-        var conn: HttpURLConnection? = null
-        return try {
-            conn = URL("https://$host/").openConnection(proxy) as HttpsURLConnection
-            conn.connectTimeout = 6000
-            conn.readTimeout = 7000
-            conn.instanceFollowRedirects = false
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36")
-            val code = conn.responseCode
-            val stream = if (code >= 400) conn.errorStream else conn.inputStream
-            var total = 0
-            if (stream != null) {
-                val buf = ByteArray(16 * 1024)
-                while (total < 96 * 1024) {
-                    val n = stream.read(buf)
-                    if (n < 0) break
-                    total += n
-                }
-                stream.close()
-            }
-            Probe(true, "ok", "HTTP $code", ping(host))
-        } catch (e: UnknownHostException) {
-            Probe(false, "dns", "DNS не отвечает")
-        } catch (e: ConnectException) {
-            Probe(false, "ip", "нет соединения: блокировка по IP")
-        } catch (e: SocketTimeoutException) {
-            if (conn != null && e.message?.contains("connect", true) == true)
-                Probe(false, "ip", "нет соединения: блокировка по IP")
-            else Probe(false, "dpi", "DPI: соединение зависло")
-        } catch (e: SSLException) {
-            Probe(false, "dpi", "DPI: сброс на TLS")
-        } catch (e: IOException) {
-            val m = e.message ?: ""
-            if (m.contains("reset", true) || m.contains("closed", true) || m.contains("EOF", true))
-                Probe(false, "dpi", "DPI: соединение сброшено")
-            else Probe(false, "dpi", "ошибка: ${m.take(60)}")
-        } finally {
-            conn?.disconnect()
-        }
+    /** Папка с libtgproxy.so (задаётся при запуске приложения и службы). */
+    @Volatile var nativeDir = ""
+
+    private fun kindOf(stage: String) = when (stage) {
+        "ok" -> "ok"
+        "dns" -> "dns"
+        "tcp" -> "ip"
+        else -> "dpi"
     }
 
-    /** Пинг: время TCP-соединения с сервером напрямую (на него DPI не влияет), мс. */
-    fun ping(host: String): Int = try {
-        val ip = java.net.InetAddress.getByName(host)
-        java.net.Socket().use { sock ->
-            val t0 = System.nanoTime()
-            sock.connect(InetSocketAddress(ip, 443), 3000)
-            ((System.nanoTime() - t0) / 1_000_000).toInt().coerceAtLeast(1)
+    /**
+     * Проверить сервисы через SOCKS на порту port (null - напрямую).
+     * light - быстрее и меньше данных (для перебора стратегий).
+     */
+    fun probeAll(port: Int?, list: List<Site> = sites, light: Boolean = false, quick: Boolean = false): Map<String, Probe> {
+        val bin = File(nativeDir, "libtgproxy.so")
+        if (list.isEmpty()) return emptyMap()
+        val res = HashMap<String, Probe>()
+        if (nativeDir.isEmpty() || !bin.exists()) {
+            list.forEach { res[it.name] = Probe(false, "dpi", "нет проверочного модуля") }
+            return res
         }
-    } catch (e: Exception) { 0 }
+        val f = File.createTempFile("sites", ".json")
+        f.writeText(JSONArray(list.map { s -> JSONObject().put("name", s.name).put("host", s.host).put("domains", JSONArray(s.domains)) }).toString())
+        try {
+            val cmd = mutableListOf(bin.absolutePath, "-check-sites", f.absolutePath)
+            if (port != null) cmd += listOf("-socks", "127.0.0.1:$port")
+            if (light) cmd += "-light"
+            if (quick) cmd += "-quick"
+            val p = ProcessBuilder(cmd).redirectErrorStream(true).start()
+            val killer = Thread { if (!p.waitFor(60, TimeUnit.SECONDS)) p.destroyForcibly() }.apply { isDaemon = true; start() }
+            p.inputStream.bufferedReader().forEachLine { line ->
+                if (line.startsWith("SITE ")) runCatching {
+                    val j = JSONObject(line.removePrefix("SITE "))
+                    val st = j.optString("stage")
+                    res[j.getString("name")] = Probe(j.optBoolean("ok"), kindOf(st), j.optString("reason"), j.optInt("ping"),
+                        st, j.optInt("kbps"), j.optString("what"))
+                }
+            }
+            killer.interrupt()
+        } catch (e: Exception) {
+            dbg("проверка: ${e.message}")
+        } finally {
+            f.delete()
+        }
+        list.forEach { if (it.name !in res) res[it.name] = Probe(false, "dpi", "проверка не завершилась", stage = "data") }
+        return res
+    }
 
     /** Средний пинг ответивших сайтов (0 - никто не ответил). */
     fun avgPing(res: Map<String, Probe>): Int {
@@ -219,46 +223,7 @@ object Engine {
     }
 
     fun probeLine(name: String, p: Probe) =
-        if (p.ok) "+ $name: ping ${p.label}" else "- $name: ping none · ${p.reason}"
-
-    /** Папка с libtgproxy.so (задаётся при запуске приложения и службы). */
-    @Volatile var nativeDir = ""
-
-    /**
-     * Telegram: приложение ходит не на сайт, а по MTProto прямо к серверам DC.
-     * Проверяем так же (req_pq к DC2 через тот же путь, что и трафик Telegram);
-     * если не вышло - результат проверки сайта web.telegram.org.
-     */
-    private fun probeTelegram(host: String, socksPort: Int?): Probe {
-        val bin = File(nativeDir, "libtgproxy.so")
-        if (nativeDir.isEmpty() || !bin.exists()) return probe(host, socksPort)
-        val cmd = mutableListOf(bin.absolutePath, "-check-dc")
-        if (socksPort != null) cmd += listOf("-socks", "127.0.0.1:$socksPort")
-        val line = runCatching {
-            val p = ProcessBuilder(cmd).redirectErrorStream(true).start()
-            val out = p.inputStream.bufferedReader().readText()
-            p.waitFor(15, TimeUnit.SECONDS)
-            out.lines().lastOrNull { it.startsWith("CHECK ") } ?: ""
-        }.getOrDefault("")
-        if (line.startsWith("CHECK OK ")) {
-            val ms = line.removePrefix("CHECK OK ").trim().toIntOrNull() ?: 0
-            return Probe(true, "ok", "MTProto DC2", ms.coerceAtLeast(1))
-        }
-        val web = probe(host, socksPort)
-        return if (web.ok) web else web.copy(reason = web.reason + "; MTProto: " + line.removePrefix("CHECK FAIL ").ifEmpty { "нет ответа" })
-    }
-
-    fun probeAll(socksPort: Int?, list: List<Site> = sites): Map<String, Probe> {
-        val pool = Executors.newFixedThreadPool(8)
-        val fut = list.associate { s ->
-            s.name to pool.submit<Probe> { if (s.name == "Telegram") probeTelegram(s.host, socksPort) else probe(s.host, socksPort) }
-        }
-        val res = fut.mapValues { (_, f) -> runCatching { f.get(35, TimeUnit.SECONDS) }.getOrElse { Probe(false, "dpi", "нет ответа") } }
-        pool.shutdownNow()
-        return res
-    }
-
-    // ---------- подбор стратегии ----------
+        if (p.ok) "✓ $name · ${p.ms} ms · ${p.detail}" else "✗ $name · ${p.detail}"
 
     /** Скорость видео YouTube через byedpi на порту port (null - без обхода), КБ/с; -1 - не вышло. */
     fun speedTest(port: Int?): Int {
@@ -271,7 +236,7 @@ object Engine {
             val out = p.inputStream.bufferedReader().readText()
             p.waitFor(30, TimeUnit.SECONDS)
             val line = out.lines().lastOrNull { it.startsWith("SPEED ") } ?: return@runCatching -1
-            if (line.startsWith("SPEED FAIL")) { log("Скорость YouTube: ${line.removePrefix("SPEED FAIL ").take(120)}"); return@runCatching -1 }
+            if (line.startsWith("SPEED FAIL")) return@runCatching -1
             val j = JSONObject(line.removePrefix("SPEED "))
             lastSpeedMethod = j.optString("method")
             j.optInt("kbps", -1)
@@ -279,127 +244,275 @@ object Engine {
     }
 
     @Volatile var lastSpeedMethod = ""
-    /** Результаты последнего подбора - для отчёта */
     @Volatile var lastSpeeds = JSONObject()
 
     /** YouTube считается замедленным, если видео грузится медленнее этого (КБ/с) */
     private const val YT_SLOW_KBPS = 600
 
+    // ---------- стратегии: встроенные + найденные глубоким поиском ----------
+
+    @Volatile private var customCache: List<Strategy> = emptyList()
+
+    fun allStrategies(ctx: Context): List<Strategy> {
+        customCache = Store.custom(ctx).map { (id, a) -> Strategy(id, a.joinToString(" "), a) }
+        return strategies + customCache
+    }
+
+    fun strategyById(id: String?) = strategies.firstOrNull { it.id == id } ?: customCache.firstOrNull { it.id == id }
+
+    /** Сначала стратегии, которые уже срабатывали на этом телефоне. */
+    fun orderedStrategies(ctx: Context): List<Strategy> {
+        val worked = Store.worked(ctx)
+        return allStrategies(ctx).sortedByDescending { worked[it.id] ?: 0 }
+    }
+
+    // ---------- результаты проверок стратегий (для ручного выбора) ----------
+
+    private fun saveResult(m: JSONObject, id: String, site: String, p: Probe, full: Boolean) {
+        val o = m.optJSONObject(id) ?: JSONObject().also { m.put(id, it) }
+        o.put(site, JSONObject().put("ok", p.ok).put("stage", p.stage).put("ping", p.ms).put("kbps", p.kbps)
+            .put("reason", p.reason).put("full", full).put("at", System.currentTimeMillis()))
+    }
+
+    private fun testStrategy(ctx: Context, s: Strategy, list: List<Site>, light: Boolean): Map<String, Probe>? {
+        val p = runCatching { startProxy(ctx, s, TEST_PORT) }.getOrNull()
+        if (p == null || !p.isAlive) {
+            stopProxy(p)
+            return null
+        }
+        val r = probeAll(TEST_PORT, list, light)
+        stopProxy(p)
+        return r
+    }
+
+    // ---------- подбор ----------
+
+    /** Простые приёмы для глубокого поиска: какие вообще пробивают DPI этой сети */
+    private fun primitives(): List<List<String>> {
+        val pos = listOf("1", "2", "1+s", "3+s", "0+sm")
+        val out = ArrayList<List<String>>()
+        for (x in pos) {
+            out += listOf("--split", x)
+            out += listOf("--disorder", x)
+            out += listOf("--oob", x)
+            out += listOf("--disoob", x)
+            out += listOf("--tlsrec", x)
+        }
+        for (t in listOf(2, 3, 4, 5, 6, 8, 10, 12)) out += listOf("--fake", "-1", "--ttl", t.toString())
+        return out
+    }
+
+    private fun customId(args: List<String>) = "g" + Integer.toHexString(args.joinToString(" ").hashCode())
+
     /**
-     * Подбор: проверка без обхода, перебор стратегий по каждому сайту, замер скорости
-     * видео YouTube для подходящих стратегий, затем план: стратегия по умолчанию +
-     * отдельные стратегии для сайтов, которым нужна другая.
+     * Подбор:
+     *  1) проверка без обхода (что и как сломано),
+     *  2) быстрый прогон встроенных стратегий по сломанным сервисам,
+     *  3) если что-то не покрыто - глубокий поиск: простые приёмы и их сочетания,
+     *  4) полная проверка 3 лучших стратегий для каждого сервиса и выбор по скорости,
+     *  5) план: стратегия по умолчанию + отдельные для сервисов, кому нужна другая
+     *     (с учётом закреплённых вручную).
      */
     fun select(ctx: Context): Plan {
-        log("== Проверка без обхода ==")
-        status = "Checking sites…"
-        val base = probeAll(null)
-        sites.forEach { s -> base[s.name]?.let { log(probeLine(s.name, it)) } }
+        val t0 = System.currentTimeMillis()
+        log("━━ Подбор стратегий ━━")
+        status = "Checking without bypass…"
+        val base = probeAll(null, sites)
         Report.setBaseline(base)
+        log("Без обхода:")
+        sites.forEach { s -> base[s.name]?.let { log("  " + probeLine(s.name, it), if (it.ok) 'i' else 'e') } }
+
         val cands = sites.filter { base[it.name]?.kind == "dpi" }.toMutableList()
         val ipBlocked = sites.filter { base[it.name]?.kind == "ip" || base[it.name]?.kind == "dns" }.map { it.name }
         Store.setUnfixable(ctx, ipBlocked)
-        val speeds = JSONObject()
-        // YouTube часто не блокируют, а замедляют: страница открывается, видео - нет
         val yt = sites.first { it.name == "YouTube" }
-        if (base[yt.name]?.ok == true) {
-            status = "Measuring YouTube speed…"
-            val sp = speedTest(null)
-            speeds.put("direct", sp)
-            log("Скорость видео YouTube без обхода: ${if (sp >= 0) "$sp КБ/с" else "не измерить"} ($lastSpeedMethod)")
-            if (sp in 0 until YT_SLOW_KBPS) {
-                log("YouTube замедлен - подбираю стратегию и для него")
-                cands.add(yt)
-            }
-        }
+        base[yt.name]?.let { if (it.ok && it.kbps in 1 until YT_SLOW_KBPS) { log("YouTube замедлен (${speedText(it.kbps)}) - подбираю и для него"); cands.add(yt) } }
+        lastSpeeds = JSONObject().put("direct", base[yt.name]?.kbps ?: -1)
+        if (ipBlocked.isNotEmpty()) log("Блок по IP, обход DPI не поможет: ${ipBlocked.joinToString()}", 'e')
+
+        val m = Store.matrix(ctx)
         if (cands.isEmpty()) {
-            log("Блокировок DPI не найдено - включаю стратегию по умолчанию.")
-            val pl = Plan(strategies.first().id, emptyList())
-            Store.setPlan(ctx, pl)
-            lastSpeeds = speeds
-            return pl
+            log("Все сервисы работают без обхода - включаю стратегию по умолчанию")
+            return finishPlan(ctx, emptyMap(), emptyList(), m)
         }
-        val order = orderedStrategies(ctx)
-        log("== Перебор стратегий (до ${order.size}) для: ${cands.joinToString { it.name }} ==")
-        val matrix = LinkedHashMap<String, Map<String, Probe>>()
+        log("Нужен обход: ${cands.joinToString { it.name }}")
+
+        // 2) быстрый прогон
+        val light = LinkedHashMap<String, Map<String, Probe>>()
+        val order = orderedStrategies(ctx).filter { !it.id.startsWith("g") }
         progTotal = order.size
         for ((i, s) in order.withIndex()) {
             if (cancel) break
             progCur = i + 1
             status = "Testing strategies: ${i + 1}/${order.size}"
-            val p = runCatching { startProxy(ctx, s, TEST_PORT) }.getOrNull()
-            if (p == null || !p.isAlive) {
-                Report.recordStrategy(s, cands, null)
-                log("[${i + 1}] ${s.name}: не запустилась")
-                stopProxy(p)
-                continue
+            val r = testStrategy(ctx, s, cands, true)
+            if (r == null) {
+                Report.recordStrategy(s, cands, null); err("[${s.id}] ${s.name}: byedpi не запустился"); continue
             }
-            val r = probeAll(TEST_PORT, cands)
-            stopProxy(p)
-            matrix[s.id] = r
+            light[s.id] = r
+            r.forEach { (site, p) -> saveResult(m, s.id, site, p, false) }
             Report.recordStrategy(s, cands, r)
-            log("[${i + 1}] ${s.name}: " + cands.joinToString("  ") { (if (r[it.name]?.ok == true) "+" else "-") + it.name })
-            val covered = cands.all { c -> matrix.values.any { it[c.name]?.ok == true } }
-            val ytCands = matrix.values.count { it[yt.name]?.ok == true }
-            // достаточно: всё покрыто, проверено не меньше 10, и для YouTube есть из чего выбрать
-            if (covered && i + 1 >= 10 && (yt !in cands || ytCands >= 3)) break
+            dbg("[${s.id}] ${s.name}: " + cands.joinToString("  ") { (if (r[it.name]?.ok == true) "✓" else "✗") + it.name })
+            // хватит: у каждого сервиса есть хотя бы 2 рабочие стратегии
+            if (i + 1 >= 8 && cands.all { c -> light.values.count { it[c.name]?.ok == true } >= 2 }) break
         }
         progTotal = 0
 
-        val assign = LinkedHashMap<String, String>() // сайт -> стратегия
-        var ytKBps = 0
-        if (yt in cands) {
-            val ytOk = matrix.entries.filter { it.value[yt.name]?.ok == true }
-                .sortedBy { it.value[yt.name]?.ms ?: 9999 }.take(4)
-            var best = ""
-            for ((i, e) in ytOk.withIndex()) {
+        // 3) глубокий поиск для непокрытых
+        var uncovered = cands.filter { c -> light.values.none { it[c.name]?.ok == true } }
+        if (uncovered.isNotEmpty() && !cancel) {
+            log("Встроенные стратегии не помогли: ${uncovered.joinToString { it.name }} - глубокий поиск")
+            val prims = primitives()
+            val passing = ArrayList<Pair<List<String>, Int>>()
+            progTotal = prims.size
+            for ((i, a) in prims.withIndex()) {
                 if (cancel) break
-                status = "Measuring YouTube speed: ${i + 1}/${ytOk.size}"
-                val s = strategyById(e.key) ?: continue
-                val p = runCatching { startProxy(ctx, s, TEST_PORT) }.getOrNull()
-                val sp = speedTest(TEST_PORT)
-                stopProxy(p)
-                speeds.put(s.id, sp)
-                log("Скорость видео YouTube, ${s.name}: ${if (sp >= 0) "$sp КБ/с" else "не измерить"}")
-                if (sp > ytKBps) { ytKBps = sp; best = s.id }
+                progCur = i + 1
+                status = "Deep search: ${i + 1}/${prims.size}"
+                val s = Strategy(customId(a), a.joinToString(" "), a)
+                val r = testStrategy(ctx, s, uncovered, true) ?: continue
+                val n = uncovered.count { r[it.name]?.ok == true }
+                // приём «почти работает»: хотя бы TLS прошёл (обрыв позже) - тоже кандидат для сочетаний
+                val partial = uncovered.count { r[it.name]?.stage == "throttle" || r[it.name]?.stage == "data" }
+                if (n > 0 || partial > 0) passing += a to (n * 10 + partial)
+                if (n > 0) { Store.addCustom(ctx, s.id, a); light[s.id] = r; r.forEach { (site, p) -> saveResult(m, s.id, site, p, false) } }
+                dbg("[глубокий] ${s.name}: $n из ${uncovered.size}")
             }
-            if (best.isEmpty()) best = ytOk.firstOrNull()?.key ?: ""
-            if (best.isNotEmpty()) assign[yt.name] = best
+            // сочетания лучших приёмов
+            val top = passing.sortedByDescending { it.second }.take(6).map { it.first }
+            val combos = ArrayList<List<String>>()
+            for (i in top.indices) for (j in i + 1 until top.size) {
+                if (top[i][0] != top[j][0]) combos += top[i] + top[j]
+            }
+            for ((i, a) in combos.take(12).withIndex()) {
+                if (cancel) break
+                status = "Deep search: combo ${i + 1}"
+                val s = Strategy(customId(a), a.joinToString(" "), a)
+                val r = testStrategy(ctx, s, uncovered, true) ?: continue
+                if (uncovered.any { r[it.name]?.ok == true }) {
+                    Store.addCustom(ctx, s.id, a); light[s.id] = r; r.forEach { (site, p) -> saveResult(m, s.id, site, p, false) }
+                    log("Глубокий поиск нашёл: ${s.name} → " + uncovered.filter { r[it.name]?.ok == true }.joinToString { it.name })
+                }
+            }
+            progTotal = 0
+            allStrategies(ctx)
+            uncovered = cands.filter { c -> light.values.none { it[c.name]?.ok == true } }
         }
-        // остальные сайты - жадно минимальным числом стратегий
-        val remaining = cands.filter { it.name !in assign }.map { it.name }.toMutableSet()
-        while (remaining.isNotEmpty()) {
-            val used = assign.values.toSet()
-            val best = matrix.entries.maxByOrNull { e ->
-                remaining.count { e.value[it]?.ok == true } * 10 + (if (e.key in used) 5 else 0)
-            } ?: break
-            val got = remaining.filter { best.value[it]?.ok == true }
-            if (got.isEmpty()) break
-            got.forEach { assign[it] = best.key; remaining.remove(it) }
+
+        // 4) полная проверка до 3 лучших для каждого сервиса, выбор по скорости
+        val best = LinkedHashMap<String, Pair<String, Int>>() // сайт -> (стратегия, КБ/с)
+        val speeds = lastSpeeds
+        for (c in cands) {
+            if (cancel) break
+            val top = light.entries.filter { it.value[c.name]?.ok == true }
+                .sortedByDescending { it.value[c.name]?.kbps ?: 0 }.take(3)
+            for ((k, e) in top.withIndex()) {
+                status = "Verifying ${c.name}: ${k + 1}/${top.size}"
+                val s = strategyById(e.key) ?: continue
+                val r = testStrategy(ctx, s, listOf(c), false)?.get(c.name) ?: continue
+                saveResult(m, s.id, c.name, r, true)
+                if (c.name == "YouTube") speeds.put(s.id, r.kbps)
+                dbg("[проверка] ${c.name} + ${s.name}: ${if (r.ok) speedText(r.kbps) else r.detail}")
+                if (r.ok && r.kbps > (best[c.name]?.second ?: -1)) best[c.name] = s.id to r.kbps
+            }
         }
-        if (remaining.isNotEmpty()) log("Не помогла ни одна стратегия: ${remaining.joinToString()}")
-        // по умолчанию - стратегия, которая нужна большему числу сайтов
-        val counts = assign.values.groupingBy { it }.eachCount()
-        val def = counts.maxByOrNull { it.value }?.key ?: matrix.entries.maxByOrNull { e -> cands.count { e.value[it.name]?.ok == true } }?.key ?: strategies.first().id
-        val groups = assign.entries.filter { it.value != def }.groupBy({ it.value }, { it.key })
-            .map { (st, ss) -> PlanGroup(st, ss) }
-        val pl = Plan(def, groups, ytKBps)
-        Store.setPlan(ctx, pl)
-        assign.values.toSet().forEach { Store.recordWorked(ctx, it) }
+        Store.setMatrix(ctx, m)
         lastSpeeds = speeds
-        log("Итог: по умолчанию ${strategyById(def)?.name}" + groups.joinToString("") { "; ${it.sites.joinToString()} → ${strategyById(it.strategy)?.name}" } +
-            (if (ytKBps > 0) "; видео YouTube $ytKBps КБ/с" else ""))
-        if (ipBlocked.isNotEmpty()) log("Заблокированы по IP (нужен VPN): ${ipBlocked.joinToString()}")
+        for (c in cands) {
+            val b = best[c.name]
+            if (b != null) log("  ${c.name}: ${strategyById(b.first)?.name} · ${speedText(b.second)}")
+            else err("  ${c.name}: рабочей стратегии не нашлось" + (base[c.name]?.let { " (${it.detail})" } ?: ""))
+        }
+        val pl = finishPlan(ctx, best.mapValues { it.value.first }, cands.map { it.name }, m)
+        log("Подбор занял ${(System.currentTimeMillis() - t0) / 1000} с")
         return pl
     }
 
-    /** Сначала стратегии, которые уже срабатывали на этом телефоне. */
-    fun orderedStrategies(ctx: Context): List<Strategy> {
-        val worked = Store.worked(ctx)
-        return strategies.sortedByDescending { worked[it.id] ?: 0 }
+    /**
+     * План из выбранных стратегий: закреплённые вручную важнее, сервисы с близкой скоростью
+     * (не хуже 70%) объединяются в стратегию по умолчанию, чтобы держать меньше процессов.
+     */
+    fun finishPlan(ctx: Context, chosen: Map<String, String>, cands: List<String>, m: JSONObject): Plan {
+        val assign = LinkedHashMap(chosen)
+        Store.pins(ctx).forEach { (site, id) -> if (strategyById(id) != null) assign[site] = id }
+        val def = assign.values.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key ?: strategies.first().id
+        val pins = Store.pins(ctx)
+        val groups = LinkedHashMap<String, MutableList<String>>()
+        for ((site, id) in assign) {
+            if (id == def) continue
+            if (site !in pins) {
+                val mine = m.optJSONObject(id)?.optJSONObject(site)?.optInt("kbps") ?: 0
+                val viaDef = m.optJSONObject(def)?.optJSONObject(site)
+                if (viaDef?.optBoolean("ok") == true && viaDef.optInt("kbps") * 10 >= mine * 7) continue
+            }
+            groups.getOrPut(id) { mutableListOf() }.add(site)
+        }
+        val ytK = m.optJSONObject(assign["YouTube"] ?: def)?.optJSONObject("YouTube")?.optInt("kbps") ?: 0
+        val pl = Plan(def, groups.map { PlanGroup(it.key, it.value) }.take(5), ytK)
+        Store.setPlan(ctx, pl)
+        assign.values.toSet().forEach { Store.recordWorked(ctx, it) }
+        log("План: по умолчанию ${strategyById(def)?.name}" + pl.groups.joinToString("") { "; ${it.sites.joinToString()} → ${strategyById(it.strategy)?.name}" })
+        return pl
     }
 
-    fun strategyById(id: String?) = strategies.firstOrNull { it.id == id }
+    // ---------- ручной выбор ----------
+
+    /** Все стратегии для сервиса с результатами последних проверок (для окна выбора) */
+    fun siteStrategies(ctx: Context, site: String): JSONObject {
+        val m = Store.matrix(ctx)
+        val pl = Pool.plan ?: Store.plan(ctx)
+        val pin = Store.pins(ctx)[site]
+        val arr = JSONArray()
+        for (s in allStrategies(ctx)) {
+            val r = m.optJSONObject(s.id)?.optJSONObject(site)
+            arr.put(JSONObject().put("id", s.id).put("name", s.name).put("args", s.args.joinToString(" "))
+                .put("tested", r != null).put("ok", r?.optBoolean("ok") ?: false).put("kbps", r?.optInt("kbps") ?: 0)
+                .put("ping", r?.optInt("ping") ?: 0).put("stage", r?.optString("stage") ?: "").put("reason", r?.optString("reason") ?: "")
+                .put("full", r?.optBoolean("full") ?: false))
+        }
+        return JSONObject().put("site", site).put("current", pl?.strategyFor(site) ?: "").put("pinned", pin ?: "").put("list", arr)
+    }
+
+    /** Проверить одну стратегию на одном сервисе (полная проверка) */
+    fun testOne(ctx: Context, site: String, id: String): Probe? {
+        val s = strategyById(id) ?: allStrategies(ctx).firstOrNull { it.id == id } ?: return null
+        val st = sites.firstOrNull { it.name == site } ?: return null
+        val r = testStrategy(ctx, s, listOf(st), false)?.get(site) ?: return null
+        val m = Store.matrix(ctx)
+        saveResult(m, id, site, r, true)
+        Store.setMatrix(ctx, m)
+        log("Проверка ${s.name} для $site: " + if (r.ok) "${r.ms} ms · ${r.detail}" else r.detail, if (r.ok) 'i' else 'e')
+        return r
+    }
+
+    /** Закрепить стратегию за сервисом (id = null - снова автоматически) и пересобрать план */
+    fun pin(ctx: Context, site: String, id: String?): Plan {
+        Store.setPin(ctx, site, id)
+        val old = Store.plan(ctx)
+        val chosen = LinkedHashMap<String, String>()
+        old?.let { pl -> sites.forEach { s -> chosen[s.name] = pl.strategyFor(s.name) } }
+        if (id == null) chosen.remove(site)
+        log(if (id == null) "$site: снова автоматический выбор" else "$site: закреплена ${strategyById(id)?.name}")
+        return finishPlan(ctx, chosen.filterKeys { it !in Store.unfixable(ctx) }, emptyList(), Store.matrix(ctx))
+    }
+
+    // ---------- проверить все сервисы сейчас ----------
+
+    /** Ping all: полная проверка всех сервисов через текущие настройки (маршрутизатор) */
+    fun pingAll(ctx: Context): Map<String, Probe> {
+        pinging = true
+        try {
+            val port = if (running) Pool.tunnelPort() else null
+            log("━━ Ping all ${if (port == null) "(без обхода)" else "(через обход)"} ━━")
+            val r = probeAll(port, sites)
+            sites.forEach { s -> r[s.name]?.let { log("  " + probeLine(s.name, it), if (it.ok) 'i' else 'e') } }
+            if (running) { results = r; checkedAt = System.currentTimeMillis() }
+            log("Работают ${r.values.count { it.ok }} из ${r.size}" + (avgPing(r).takeIf { it > 0 }?.let { " · ping ~$it ms" } ?: ""))
+            return r
+        } finally {
+            pinging = false
+        }
+    }
 
     // ---------- состояние для страницы ----------
 
@@ -408,36 +521,38 @@ object Engine {
         o.put("version", BuildConfigVersion.name(ctx))
         o.put("running", running)
         o.put("starting", starting)
-        o.put("busy", busy)
+        o.put("busy", busy || pinging)
+        o.put("pinging", pinging)
         o.put("status", status)
         val plan = Pool.plan ?: Store.plan(ctx)
         val st = strategyById(plan?.default ?: Store.strategy(ctx))
         o.put("strategy", (st?.name ?: "") + (if ((plan?.groups?.size ?: 0) > 0) " + ${plan!!.groups.size} per-site" else ""))
         o.put("boot", Store.boot(ctx))
         val unfix = Store.unfixable(ctx)
+        val pins = Store.pins(ctx)
         val rows = JSONArray()
         var ok = 0
         var total = 0
         for (s in sites) {
-            val r = JSONObject().put("name", s.name)
+            val sid = plan?.strategyFor(s.name) ?: ""
+            val r = JSONObject().put("name", s.name).put("strategy", sid + (if (s.name in pins) " 📌" else ""))
             val p = results[s.name]
             when {
-                unfix.contains(s.name) -> r.put("kind", "bad").put("label", "none").put("strategy", "IP blocked · needs VPN")
-                running && p != null -> {
+                p != null && (running || pinging || checkedAt > 0) -> {
                     total++
                     if (p.ok) ok++
-                    r.put("kind", if (p.ok) "ok" else "bad").put("label", p.label)
-                    r.put("strategy", plan?.strategyFor(s.name) ?: st?.id ?: "")
+                    r.put("kind", if (p.ok) "ok" else "bad").put("label", if (p.ok) p.label else "none").put("detail", p.detail)
                 }
-                running -> r.put("kind", "idle").put("label", "checking…").put("strategy", plan?.strategyFor(s.name) ?: "")
-                else -> r.put("kind", "idle").put("label", "off").put("strategy", plan?.strategyFor(s.name) ?: "—")
+                unfix.contains(s.name) -> r.put("kind", "bad").put("label", "none").put("detail", "блок по IP: нужен VPN")
+                running -> r.put("kind", "idle").put("label", "checking…")
+                else -> r.put("kind", "idle").put("label", "off")
             }
             rows.put(r)
         }
         o.put("sites", rows)
         o.put("sitesOk", ok)
         o.put("sitesTotal", total)
-        o.put("checked", if (running && checkedAt > 0) ago(checkedAt) else "")
+        o.put("checked", if (checkedAt > 0) ago(checkedAt) else "")
         o.put("progress", JSONObject().put("cur", progCur).put("total", progTotal))
         o.put("tgRunning", TgProxy.ready)
         o.put("tgLink", if (TgProxy.ready) TgProxy.link(ctx) else "")

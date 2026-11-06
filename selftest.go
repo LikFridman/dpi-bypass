@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	svc "dpibypass/check"
 	"dpibypass/speed"
 	"dpibypass/tg"
 	"encoding/json"
@@ -74,6 +75,14 @@ func selftest() int {
 		res := probeAll(svcs)
 		say("%s", statusLine(svcs, res))
 		printTable(svcs, res)
+		// Ping all: нагрузочная проверка всех сервисов через рабочую конфигурацию
+		var cs []svc.Site
+		for _, s := range svcs {
+			cs = append(cs, checkSite(s))
+		}
+		for _, r := range svc.RunAll(context.Background(), cs, winDial(), svc.Options{}, nil) {
+			say("      ping-all %s", checkLine(r))
+		}
 		pd := ""
 		if avgPing(res) == 0 {
 			pd = "ни один сайт не ответил"

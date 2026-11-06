@@ -128,6 +128,15 @@ h2{margin:0;font-size:15px;font-weight:700}
 .r.new{animation:rowIn .5s var(--ease) both;animation-delay:calc(var(--i,0) * 40ms)}
 @keyframes rowIn{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:none}}
 .r .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.r.click{cursor:pointer}.r.click:hover{background:rgba(255,255,255,.05)}
+.r .nm small{display:block;font-size:11.5px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.r .nm small.e{color:#fca5a5}
+.chips{display:flex;gap:6px}.chip{height:30px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.06);color:var(--text);font:600 12px var(--font);cursor:pointer}
+.chip.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.stl{display:flex;align-items:center;gap:8px;padding:9px 6px;border-bottom:1px solid var(--sep)}
+.stl.cur{background:rgba(111,140,255,.14);border-radius:10px}
+.stl .nm{flex:1;min-width:0}.stl .nm b{font-size:13px;display:block}.stl .nm small{font:11px var(--mono);color:var(--dim);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stl .btn{height:30px;padding:0 10px;font-size:12px}
 .r .sg{width:170px;color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bd{font-size:11px;font-weight:600;padding:4px 10px;border-radius:999px;white-space:nowrap;transition:background .4s,color .4s}
 .bd.ok{background:rgba(52,211,153,.16);color:var(--okText)}
@@ -242,7 +251,7 @@ h2{margin:0;font-size:15px;font-weight:700}
       </div>
       <div class="grid2 st" style="--i:3">
         <div class="card glass lift" style="display:flex;flex-direction:column;min-height:0">
-          <div class="ch"><h2>Sites</h2><span class="dim" style="font-size:12px" id="sitesCount"></span></div>
+          <div class="ch"><h2>Sites</h2><span style="display:flex;gap:10px;align-items:center"><span class="dim" style="font-size:12px" id="sitesCount"></span><button class="btn pri" style="height:28px;padding:0 12px;font-size:12px" data-a="pingAll">Ping all</button></span></div>
           <div class="list" id="homeSites"></div>
         </div>
         <div class="card glass lift" style="display:flex;flex-direction:column;min-height:0">
@@ -255,7 +264,8 @@ h2{margin:0;font-size:15px;font-weight:700}
     <!-- САЙТЫ -->
     <section class="page" id="p-sites" aria-label="Сайты">
       <div class="head st" style="--i:0"><h1>Sites</h1>
-        <div class="row"><button class="btn" data-a="tune">New sites</button><button class="btn" data-a="reselect">Re-tune</button><button class="btn" data-a="openSites">Edit list</button></div></div>
+        <div class="row"><button class="btn pri" data-a="pingAll">Ping all</button><button class="btn" data-a="tune">New sites</button><button class="btn" data-a="reselect">Re-tune</button><button class="btn" data-a="openSites">Edit list</button></div></div>
+      <div class="dim st" style="--i:1;font-size:13px">Клик по сервису — выбрать стратегию вручную: проверить любую с нагрузкой и закрепить.</div>
       <div class="card glass st" style="--i:1;flex:1;min-height:0;display:flex;flex-direction:column">
         <div class="r dim" style="font-size:12px"><span class="nm">Site</span><span class="sg">Strategy</span><span style="width:110px;text-align:right">Ping</span></div>
         <div class="list" id="allSites" style="flex:1"></div>
@@ -316,7 +326,7 @@ h2{margin:0;font-size:15px;font-weight:700}
 
     <!-- ЖУРНАЛ -->
     <section class="page" id="p-log" aria-label="Журнал">
-      <div class="head st" style="--i:0"><h1>Log</h1><div class="row"><button class="btn" data-a="diag">Diagnostics</button><button class="btn" data-a="openLog">Open file</button></div></div>
+      <div class="head st" style="--i:0"><h1>Log</h1><div class="row"><div class="chips"><button class="chip on" data-lv="sum">Summary</button><button class="chip" data-lv="err">Errors</button><button class="chip" data-lv="all">All</button></div><button class="btn" data-a="diag">Diagnostics</button><button class="btn" data-a="openLog">Open file</button></div></div>
       <div class="card glass st" style="--i:1;flex:1;min-height:0;display:flex;flex-direction:column"><div class="log" id="fullLog" style="flex:1;padding-top:14px"></div></div>
     </section>
 
@@ -347,6 +357,11 @@ h2{margin:0;font-size:15px;font-weight:700}
 </div>
 
 <div class="toasts" id="toasts"></div>
+<div class="modal" id="sheet" role="dialog" aria-modal="true" aria-label="Стратегии для сервиса"><div class="dlg glass" style="width:min(760px,94vw);max-height:84vh;display:flex;flex-direction:column;gap:10px">
+  <div class="row" style="justify-content:space-between;align-items:center"><b id="shTitle" style="font-size:17px">—</b><div class="row"><button class="btn" id="shAuto">Auto</button><button class="btn" id="shClose">Close</button></div></div>
+  <div class="dim" id="shInfo" style="font-size:12.5px"></div>
+  <div id="shList" style="overflow-y:auto;flex:1;min-height:0"></div>
+</div></div>
 <div class="modal agr" id="agr" role="dialog" aria-modal="true" aria-label="Пользовательское соглашение"><div class="dlg glass">
   <div class="txt" id="agrText"></div>
   <div class="row" style="justify-content:flex-end"><button class="btn" id="agrNo">Закрыть</button><button class="btn pri" id="agrYes">Принять</button></div>
@@ -431,8 +446,10 @@ function badge(kind){
 function siteRow(s,i,withStrat){
   const key=(withStrat?"a:":"h:")+s.name;
   const isNew=!seenSites.has(key);seenSites.add(key);
-  const r=document.createElement("div");r.className="r"+(isNew?" new":"");r.style.setProperty("--i",i);
-  const n=document.createElement("span");n.className="nm";n.textContent=s.name;r.appendChild(n);
+  const r=document.createElement("div");r.className="r click"+(isNew?" new":"");r.style.setProperty("--i",i);r.onclick=()=>openSheet(s.name);
+  const n=document.createElement("span");n.className="nm";n.textContent=s.name;
+  if(s.detail){const d=document.createElement("small");d.textContent=s.detail;if(s.kind==="bad")d.className="e";n.appendChild(d)}
+  r.appendChild(n);
   if(withStrat){const g=document.createElement("span");g.className="sg";g.textContent=s.strategy||"—";r.appendChild(g)}
   const w=document.createElement("span");w.style.cssText=withStrat?"width:110px;text-align:right":"margin-left:auto";
   const b=document.createElement("span");b.className="bd "+s.kind;b.textContent=s.label;b.dataset.k=s.name+s.kind;w.appendChild(b);r.appendChild(w);
@@ -492,7 +509,27 @@ function apply(st){
   if(st.deepActive&&!prev.deepActive){$("#deepLog").replaceChildren()}
   $("#dDeep").classList.toggle("show",!!st.deepActive);
   $$("[data-a]").forEach(b=>{const a=b.dataset.a;if(["diag","reselect","tune","deep","share","reset"].includes(a))b.disabled=!!st.busy});
+  $$("[data-a=pingAll]").forEach(b=>{b.disabled=!!st.pinging||!!st.busy;b.textContent=st.pinging?"Pinging…":"Ping all"});
 }
+/* фильтр журнала: Summary скрывает построчный перебор стратегий и подробности */
+let logLv="sum";
+function lvOf(l){if(/^\s+\[\s*\d+\/\d+\]|^\s{4,}|^byedpi|^winws:|^\s*Telegram: (из|список)/.test(l))return"det";if(/^\[-\]|^\[!\]|ошибк|не удалось|FAIL|✗/i.test(l))return"err";return"sum"}
+function lvShow(lv){return logLv==="all"||(logLv==="err"&&lv==="err")||(logLv==="sum"&&lv!=="det")}
+$$("[data-lv]").forEach(c=>c.addEventListener("click",()=>{logLv=c.dataset.lv;$$("[data-lv]").forEach(x=>x.classList.toggle("on",x===c));$$("#fullLog>div").forEach(d=>d.style.display=lvShow(d.dataset.lv)?"":"none");const b=$("#fullLog");b.scrollTop=b.scrollHeight}));
+/* окно выбора стратегии */
+let shSite="";
+function openSheet(site){shSite=site;$("#shTitle").textContent=site;$("#sheet").classList.add("on");loadSheet()}
+$("#shClose").onclick=()=>{$("#sheet").classList.remove("on");shSite=""};
+$("#shAuto").onclick=()=>call("pin",shSite+"|");
+function kb(k){return k>=1024?(k/1024).toFixed(1)+" MB/s":k+" KB/s"}
+function loadSheet(){call("siteStrategies",shSite).then(d=>{if(!d)return;
+  $("#shInfo").textContent=(d.pinned?"Закреплена вручную: "+d.pinned:"Автоматический выбор")+(d.current?" · сейчас: "+d.current:"")+" · Test выключает обход на несколько секунд · ~ быстрая проверка, без ~ полная";
+  $("#shList").replaceChildren(...(d.list||[]).map(x=>{const r=document.createElement("div");r.className="stl"+(x.id===d.current?" cur":"");
+    const n=document.createElement("div");n.className="nm";const b=document.createElement("b");b.textContent=x.id+" · "+x.name;const sm=document.createElement("small");sm.textContent=x.args+(x.reason&&!x.ok?" — "+x.reason:"");n.append(b,sm);r.appendChild(n);
+    const bd=document.createElement("span");bd.className="bd "+(!x.tested?"idle":x.ok?"ok":"bad");bd.textContent=!x.tested?"—":x.ok?(x.kbps?kb(x.kbps):"ok")+(x.full?"":" ~"):"✗ "+(x.stage||"");r.appendChild(bd);
+    const tb=document.createElement("button");tb.className="btn";tb.textContent="Test";tb.onclick=()=>{tb.textContent="…";call("testStrategy",shSite+"|"+x.id)};r.appendChild(tb);
+    const ub=document.createElement("button");ub.className="btn"+(x.id===d.pinned?" pri":"");ub.textContent="Use";ub.onclick=()=>call("pin",shSite+"|"+x.id);r.appendChild(ub);
+    return r}))})}
 function cls(l){if(/^\[-\]|ошибк|не удалось|FAIL/i.test(l))return"e";if(/^\[!\]/.test(l))return"w";if(/^\[\+\]/.test(l))return"g";if(/^== /.test(l))return"h";return""}
 function addLogs(lines){
   if(!lines||!lines.length)return;
@@ -501,7 +538,7 @@ function addLogs(lines){
   [["#fullLog",1500],["#homeLog",40],["#deepLog",200]].forEach(([sel,max])=>{
     if(sel==="#deepLog"&&!deepOn)return;
     const box=$(sel);const near=box.scrollHeight-box.scrollTop-box.clientHeight<60;
-    lines.forEach(l=>{const d=document.createElement("div");d.textContent=l;const c=cls(l);if(c)d.className=c+" new";else d.className="new";box.appendChild(d)});
+    lines.forEach(l=>{const d=document.createElement("div");d.textContent=l;const c=cls(l);if(c)d.className=c+" new";else d.className="new";if(sel==="#fullLog"){d.dataset.lv=lvOf(l);if(!lvShow(d.dataset.lv))d.style.display="none"}else if(sel==="#homeLog"&&lvOf(l)==="det")return;box.appendChild(d)});
     while(box.childElementCount>max)box.firstElementChild.remove();
     if(near||sel!=="#fullLog")box.scrollTop=box.scrollHeight;
   });
@@ -533,7 +570,7 @@ window.__push=function(m){
   if(m.state)apply(m.state);
   if(m.logs)addLogs(m.logs);
   if(m.state&&m.state.needConsent&&!agrOpen&&!agrDone)showAgreement(true);
-  (m.events||[]).forEach(e=>{if(e.t==="consent")showAgreement(true);if(e.t==="toast")toast(e.text);if(e.t==="confirm")confirmBox(e.id,e.text);if(e.t==="go")go(e.p)});
+  (m.events||[]).forEach(e=>{if(e.t==="stratUpdated"&&shSite)loadSheet();if(e.t==="consent")showAgreement(true);if(e.t==="toast")toast(e.text);if(e.t==="confirm")confirmBox(e.id,e.text);if(e.t==="go")go(e.p)});
 };
 window.addEventListener("error",e=>call("jsError",(e.message||"")+" @"+(e.lineno||"")));
 window.addEventListener("resize",movePill);

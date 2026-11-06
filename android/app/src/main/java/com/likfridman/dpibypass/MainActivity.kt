@@ -211,10 +211,41 @@ class MainActivity : Activity() {
                     if (!Engine.busy) Thread {
                         Engine.busy = true
                         try {
-                            Engine.log("== Диагностика: проверка без обхода ==")
+                            Engine.log("━━ Диагностика: без обхода ━━")
                             val r = Engine.probeAll(null)
-                            Engine.sites.forEach { s -> r[s.name]?.let { Engine.log(Engine.probeLine(s.name, it)) } }
+                            Engine.sites.forEach { s -> r[s.name]?.let { Engine.log("  " + Engine.probeLine(s.name, it), if (it.ok) 'i' else 'e') } }
                         } finally { Engine.busy = false }
+                    }.start()
+                    null
+                }
+                "pingAll" -> {
+                    if (!Engine.pinging && !Engine.busy) Thread {
+                        val r = Engine.pingAll(this@MainActivity)
+                        toast("Ping all: ${r.values.count { it.ok }}/${r.size} work")
+                    }.start()
+                    null
+                }
+                "siteStrategies" -> Engine.siteStrategies(this@MainActivity, arg)
+                "testStrategy" -> {
+                    val (site, id) = arg.split("|").let { (it.getOrNull(0) ?: "") to (it.getOrNull(1) ?: "") }
+                    if (Engine.busy) toast("Сейчас идёт подбор - подожди")
+                    else Thread {
+                        Engine.busy = true
+                        try {
+                            val r = Engine.testOne(this@MainActivity, site, id)
+                            toast(if (r == null) "byedpi не запустился" else if (r.ok) "$site: ${r.ms} ms · ${r.detail}" else "$site: ${r.detail}")
+                            event(JSONObject().put("t", "stratUpdated").put("site", site))
+                        } finally { Engine.busy = false }
+                    }.start()
+                    null
+                }
+                "pin" -> {
+                    val (site, id) = arg.split("|").let { (it.getOrNull(0) ?: "") to (it.getOrNull(1) ?: "") }
+                    Thread {
+                        val pl = Engine.pin(this@MainActivity, site, id.ifEmpty { null })
+                        if (Engine.running) Pool.start(this@MainActivity, pl)
+                        toast(if (id.isEmpty()) "$site: автоматический выбор" else "$site: стратегия закреплена")
+                        event(JSONObject().put("t", "stratUpdated").put("site", site))
                     }.start()
                     null
                 }

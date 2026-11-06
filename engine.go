@@ -3,6 +3,8 @@
 package main
 
 import (
+	"context"
+	"dpibypass/check"
 	"dpibypass/speed"
 	"fmt"
 	"net/http"
@@ -188,12 +190,27 @@ func testStrategies(list []Strategy, cands []Service, stopWhenAll bool) map[stri
 			continue
 		}
 		res := probeAll(cands)
+		// ответил - ещё не значит работает: проверить нагрузкой (файлы CDN, видео, шлюз)
+		var loadSites []check.Site
+		for _, s := range cands {
+			if res[s.Name].OK {
+				loadSites = append(loadSites, checkSite(s))
+			}
+		}
+		loads := check.RunAll(context.Background(), loadSites, winDial(), check.Options{Light: true}, nil)
 		w.Stop()
 		works[st.ID] = map[string]bool{}
 		all := true
 		var parts []string
 		for _, s := range cands {
 			ok := res[s.Name].OK
+			if l, has := loads[s.Name]; has {
+				ok = l.OK
+				recordResult(st.ID, s.Name, fromCheck(l, false))
+			} else {
+				r := res[s.Name]
+				recordResult(st.ID, s.Name, stratRes{OK: false, Stage: stageNames[r.Stage], Reason: r.Reason})
+			}
 			works[st.ID][s.Name] = ok
 			all = all && ok
 			parts = append(parts, fmt.Sprintf("%s %s", mark(ok), s.Name))
@@ -324,6 +341,13 @@ func selectConfig(svcs []Service, prev *Config) *Config {
 	}
 	groups, remaining := coverGroups(list, cands, works)
 	cfg.Groups = groups
+	if old := loadConfig(); old != nil && len(old.Pins) > 0 {
+		cfg.Pins = old.Pins
+		applyPins(cfg)
+		for svc := range cfg.Pins {
+			delete(remaining, svc)
+		}
+	}
 	if len(cfg.Groups) > 0 {
 		cfg.Best = cfg.Groups[0].Strategy
 	}
@@ -797,6 +821,7 @@ func pickFastestYouTube(list []Strategy, works map[string]map[string]bool) {
 			continue
 		}
 		tmSpeed(st.ID, sp.KBps)
+		recordResult(st.ID, "YouTube", stratRes{OK: true, Stage: "ok", KBps: sp.KBps, Full: true})
 		say("  %-42s %d КБ/с", st.Name, sp.KBps)
 		if sp.KBps > bestK {
 			best, bestK = st.ID, sp.KBps

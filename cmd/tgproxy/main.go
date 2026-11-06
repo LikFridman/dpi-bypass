@@ -14,9 +14,11 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	svc "dpibypass/check"
 	"dpibypass/router"
 	"dpibypass/speed"
 	"dpibypass/tg"
@@ -46,6 +48,9 @@ func main() {
 	socks := flag.String("socks", "", "SOCKS5 обхода DPI (byedpi), например 127.0.0.1:1080")
 	worker := flag.String("worker", "", "свой Cloudflare Worker")
 	check := flag.String("check", "", "проверить уже запущенный прокси по этому адресу и выйти")
+	checkSites := flag.String("check-sites", "", "проверить сервисы из JSON-файла (через -socks, если задан) и выйти")
+	light := flag.Bool("light", false, "облегчённая проверка (для перебора стратегий)")
+	quick := flag.Bool("quick", false, "фоновая проверка: только начало страницы")
 	routerCfg := flag.String("router", "", "запустить маршрутизатор SOCKS5 по JSON-настройкам из файла")
 	speedTest := flag.Bool("speed", false, "замерить скорость видео YouTube (через -socks, если задан) и выйти")
 	checkDC := flag.Bool("check-dc", false, "проверить Telegram как приложение: MTProto напрямую к DC2 (через -socks, если задан) и выйти")
@@ -92,6 +97,31 @@ func main() {
 	}
 	if *discover {
 		runDiscover(srcs, *socks, *want)
+		return
+	}
+	if *checkSites != "" {
+		b, err := os.ReadFile(*checkSites)
+		if err != nil {
+			fmt.Printf("ERR %v\n", err)
+			os.Exit(2)
+		}
+		var sites []svc.Site
+		if err := json.Unmarshal(b, &sites); err != nil {
+			fmt.Printf("ERR %v\n", err)
+			os.Exit(2)
+		}
+		dial := svc.Direct(6 * time.Second)
+		if *socks != "" {
+			dial = svc.Socks(*socks)
+		}
+		var mu sync.Mutex
+		svc.RunAll(context.Background(), sites, dial, svc.Options{Light: *light, Quick: *quick}, func(r svc.Result) {
+			j, _ := json.Marshal(r)
+			mu.Lock()
+			fmt.Printf("SITE %s\n", j)
+			mu.Unlock()
+		})
+		fmt.Println("DONE")
 		return
 	}
 	if *routerCfg != "" {

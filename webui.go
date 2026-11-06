@@ -36,6 +36,7 @@ type uiSiteRow struct {
 	Kind     string `json:"kind"` // ok | custom | vpn | bad | idle
 	Label    string `json:"label"`
 	Strategy string `json:"strategy"`
+	Detail   string `json:"detail,omitempty"`
 }
 
 type uiProgress struct {
@@ -63,6 +64,7 @@ type uiState struct {
 	TgFound     []tg.Found  `json:"tgFound"`
 	TgFoundAt   string      `json:"tgFoundAt"`
 	TgSearch    bool        `json:"tgSearching"`
+	Pinging     bool        `json:"pinging"`
 	NeedConsent bool        `json:"needConsent"`
 	Agreement   string      `json:"agreement,omitempty"`
 	Autostart   bool        `json:"autostart"`
@@ -239,6 +241,8 @@ func siteRows() ([]uiSiteRow, int, int, string) {
 		cfg = loadConfigCached()
 	}
 	running := engRunning.Load()
+	pres, pat := lastPing()
+	usePing := pres != nil && (!running || pat.After(at))
 	var rows []uiSiteRow
 	ok, total := 0, 0
 	strat := map[string]string{}
@@ -263,6 +267,28 @@ func siteRows() ([]uiSiteRow, int, int, string) {
 		if cfg != nil {
 			unfix = cfg.Unfixable[s.Name]
 		}
+		if pr, has := pres[s.Name]; usePing && has {
+			total++
+			if pr.OK {
+				ok++
+				row.Kind, row.Label = "ok", fmt.Sprintf("%d ms", pr.Ping)
+				if pr.KBps > 0 {
+					row.Detail = kbText(pr.KBps) + " · " + pr.What
+				} else {
+					row.Detail = pr.What
+				}
+			} else {
+				row.Kind, row.Label, row.Detail = "bad", "none", pr.Stage+": "+pr.Reason
+			}
+			if row.Strategy == "" {
+				row.Strategy = "direct"
+			}
+			if cfg != nil && cfg.Pins[s.Name] != "" {
+				row.Strategy += " 📌"
+			}
+			rows = append(rows, row)
+			continue
+		}
 		switch {
 		case unfix != "" && s.Name == "Telegram" && running && (len(vpnSocks()) > 0 || curVPN.FullTunnel):
 			row.Kind, row.Label, row.Strategy = "vpn", "via VPN", "IP blocked"
@@ -282,7 +308,7 @@ func siteRows() ([]uiSiteRow, int, int, string) {
 					row.Kind = "custom"
 				}
 			} else if has {
-				row.Kind, row.Label = "bad", "none"
+				row.Kind, row.Label, row.Detail = "bad", "none", stageNames[r.Stage]+": "+r.Reason
 			} else {
 				row.Kind, row.Label = "idle", "checking…"
 			}
@@ -369,6 +395,7 @@ func buildUIState() uiState {
 		st.Update = v
 	}
 	st.Sites, st.SitesOK, st.SitesTotal, st.Checked = siteRows()
+	st.Pinging = pinging.Load()
 	if t := progTotal.Load(); t > 0 {
 		st.Progress = uiProgress{Cur: int(progCur.Load()), Total: int(t), Label: st.Status}
 	}
@@ -568,6 +595,20 @@ func webCall(cmd, arg string) (any, error) {
 	case "report":
 		go sendReport("manual")
 		uiToast("Собираю отчёт...")
+	case "pingAll":
+		pingAllAsync()
+	case "siteStrategies":
+		return siteStrategiesJSON(arg), nil
+	case "testStrategy":
+		p := strings.SplitN(arg, "|", 2)
+		if len(p) == 2 {
+			testOneStrategy(p[0], p[1])
+		}
+	case "pin":
+		p := strings.SplitN(arg, "|", 2)
+		if len(p) == 2 {
+			go pinStrategy(p[0], p[1])
+		}
 	case "tgFind":
 		tgDiscoverAsync(true)
 	case "tgUse":

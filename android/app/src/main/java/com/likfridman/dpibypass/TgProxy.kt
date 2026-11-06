@@ -64,7 +64,7 @@ object TgProxy {
                                 stats = "connections ${n[1]} (active ${n[0]}) · WebSocket ${n[2]} · TCP ${n[3]} · failed ${n[4]}"
                         }
                         line.startsWith("ROUTES ") -> routes = line.removePrefix("ROUTES ")
-                        line.startsWith("LOG ") -> Engine.log(line.removePrefix("LOG "))
+                        line.startsWith("LOG ") -> Engine.dbg(line.removePrefix("LOG "))
                         line.startsWith("ERR ") -> {
                             lastError = line.removePrefix("ERR ")
                             Report.error("Telegram-прокси: $lastError")
@@ -128,7 +128,7 @@ object TgProxy {
                 p.inputStream.bufferedReader().forEachLine { line ->
                     when {
                         line.startsWith("FOUND ") -> runCatching { res.put(org.json.JSONObject(line.removePrefix("FOUND "))) }
-                        line.startsWith("LOG ") -> Engine.log(line.removePrefix("LOG "))
+                        line.startsWith("LOG ") -> Engine.dbg(line.removePrefix("LOG "))
                     }
                 }
                 p.waitFor(5, TimeUnit.SECONDS)

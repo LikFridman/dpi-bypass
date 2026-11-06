@@ -164,3 +164,26 @@ func YouTube(cl *http.Client, maxTime time.Duration) (Result, error) {
 	}
 	return r, nil
 }
+
+// YouTubeVideo - только видео с googlevideo (без запасного замера страницы):
+// ошибка значит, что видео через этот путь не идёт.
+func YouTubeVideo(cl *http.Client, maxTime time.Duration) (Result, error) {
+	return YouTubeVideoMax(cl, maxTime, 8<<20)
+}
+
+// YouTubeVideoMax - то же с ограничением объёма (экономия мобильного трафика)
+func YouTubeVideoMax(cl *http.Client, maxTime time.Duration, maxBytes int64) (Result, error) {
+	u, client, err := videoURL(cl)
+	if err != nil {
+		return Result{}, err
+	}
+	ua := ""
+	for _, c := range ytClients {
+		if c.name == client {
+			ua = c.ua
+		}
+	}
+	r, err := download(cl, u, maxBytes, maxTime, ua)
+	r.Method = "googlevideo (" + client + ")"
+	return r, err
+}

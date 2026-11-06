@@ -170,7 +170,9 @@ class BypassVpnService : VpnService() {
         var reported = false
         while (!stopping) {
             // проверка тем же путём, что и трафик: через маршрутизатор (стратегии по сайтам)
-            Engine.results = Engine.probeAll(Pool.tunnelPort(), Engine.sites.filter { !Store.unfixable(this).contains(it.name) })
+            // фоновая проверка - лёгкая (начало страниц), чтобы не тратить мобильный трафик;
+            // полная, с видео и файлами, - при подборе и по кнопке Ping all
+            if (!Engine.pinging) Engine.results = Engine.probeAll(Pool.tunnelPort(), Engine.sites.filter { !Store.unfixable(this).contains(it.name) }, quick = true)
             Engine.checkedAt = System.currentTimeMillis()
             val ok = Engine.results.values.count { it.ok }
             val total = Engine.results.size
@@ -197,7 +199,7 @@ class BypassVpnService : VpnService() {
                 continue
             }
             if (System.currentTimeMillis() - TgProxy.foundAt > 30 * 60_000L) TgProxy.discoverAsync(this, false)
-            for (i in 0 until 60) {
+            for (i in 0 until 300) {
                 if (stopping) return
                 if (i % 5 == 0) Pool.ensureAlive(this)
                 Thread.sleep(1000)

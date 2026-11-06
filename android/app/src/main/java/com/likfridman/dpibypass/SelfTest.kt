@@ -42,8 +42,9 @@ object SelfTest {
             Engine.stopProxy(p)
         }
         val p = Engine.startProxy(a, Engine.strategies.first(), Engine.TEST_PORT)
-        val r = Engine.probe("www.google.com", Engine.TEST_PORT)
-        check("сайт через byedpi", r.ok, r.reason)
+        val google = Site("Google", "www.google.com", listOf("google.com", "gstatic.com"))
+        val r = Engine.probeAll(Engine.TEST_PORT, listOf(google))["Google"]!!
+        check("сайт через byedpi (с нагрузкой)", r.ok, r.detail)
         for (via in listOf<Int?>(null, Engine.TEST_PORT)) {
             val cmd = mutableListOf(TgProxy.binary(a).absolutePath, "-check-ws")
             if (via != null) cmd += listOf("-socks", "127.0.0.1:$via")
@@ -68,20 +69,24 @@ object SelfTest {
         val pl = Plan(Engine.strategies[0].id, listOf(PlanGroup(Engine.strategies[1].id, listOf("YouTube"))))
         val poolOk = Pool.start(a, pl)
         check("пул byedpi и маршрутизатор", poolOk && Pool.routerReady, Pool.describe())
-        val rr = Engine.probe("www.google.com", Engine.ROUTER_PORT)
-        check("сайт через маршрутизатор", rr.ok, rr.reason)
-        val ry = Engine.probe("www.youtube.com", Engine.ROUTER_PORT)
-        check("YouTube через маршрутизатор (своя группа)", ry.ok, ry.reason)
-        val tgr = Engine.probeAll(Engine.ROUTER_PORT, Engine.sites.filter { it.name == "Telegram" })["Telegram"]
-        check("Telegram через маршрутизатор", tgr?.ok == true, "${tgr?.label} ${tgr?.reason}")
+        // все сервисы через маршрутизатор - как кнопка Ping all
+        val all = Engine.probeAll(Engine.ROUTER_PORT, Engine.sites + google)
+        for ((n, pr) in all) out.appendLine("INFO ping-all $n: ${Engine.probeLine(n, pr)}").also { Log.i(TAG, "INFO ping-all ${Engine.probeLine(n, pr)}") }
+        check("сайт через маршрутизатор", all["Google"]?.ok == true, all["Google"]?.detail ?: "")
+        check("YouTube через маршрутизатор: видео (своя группа)", all["YouTube"]?.ok == true, all["YouTube"]?.detail ?: "")
+        check("Telegram через маршрутизатор", all["Telegram"]?.ok == true, all["Telegram"]?.detail ?: "")
+        // ручной выбор: проверка одной стратегии и окно выбора
+        val one = Engine.testOne(a, "YouTube", Engine.strategies[2].id)
+        check("проверка одной стратегии (ручной выбор)", one != null, one?.detail ?: "")
+        check("список стратегий для сервиса", Engine.siteStrategies(a, "YouTube").getJSONArray("list").length() >= Engine.strategies.size)
         Thread.sleep(10_500)
         Log.i(TAG, "INFO router " + Pool.routerStats)
         val sp = Engine.speedTest(Engine.PORT)
         out.appendLine("INFO скорость YouTube через byedpi: $sp КБ/с (${Engine.lastSpeedMethod})")
         Log.i(TAG, "INFO youtube speed $sp KB/s ${Engine.lastSpeedMethod}")
         Pool.stopAll()
-        val direct = Engine.probe("www.google.com", null)
-        check("сайт напрямую", direct.ok, direct.reason)
+        val direct = Engine.probeAll(null, listOf(google))["Google"]!!
+        check("сайт напрямую", direct.ok, direct.detail)
         check("пинг измеряется", direct.ms > 0, direct.label)
 
         val rj = runCatching { Report.build(a, "test") }

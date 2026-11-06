@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-var version = "2.0.1" // при сборке на GitHub подставляется номер версии
+var version = "2.1" // при сборке на GitHub подставляется номер версии
 
 var (
 	baseDir string
@@ -42,6 +42,7 @@ type Config struct {
 	// свои стратегии для отдельных сайтов (подбор для автосписка и глубокая проверка)
 	Sites  map[string]string `json:"sites,omitempty"` // домен -> id стратегии
 	Custom []Strategy        `json:"custom,omitempty"`
+	Pins   map[string]string `json:"pins,omitempty"` // закреплённые вручную: сервис -> стратегия
 	Tuned  time.Time         `json:"tuned,omitempty"`
 }
 

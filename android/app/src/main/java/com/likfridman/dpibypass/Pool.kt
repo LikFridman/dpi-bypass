@@ -103,8 +103,8 @@ object Pool {
                     when {
                         line.startsWith("READY ") -> routerReady = true
                         line.startsWith("RSTATS ") -> routerStats = line.removePrefix("RSTATS ")
-                        line.startsWith("LOG ") -> Engine.log(line.removePrefix("LOG "))
-                        line.startsWith("ERR ") -> Engine.log("Маршрутизатор: ${line.removePrefix("ERR ")}")
+                        line.startsWith("LOG ") -> line.removePrefix("LOG ").let { if ("перевожу" in it) Engine.log(it) else Engine.dbg(it) }
+                        line.startsWith("ERR ") -> Engine.err("Маршрутизатор: ${line.removePrefix("ERR ")}")
                     }
                 }
             } catch (_: IOException) {
@@ -119,14 +119,14 @@ object Pool {
     fun ensureAlive(ctx: Context) {
         for ((port, pr) in procs) {
             if (pr.p?.isAlive != true) {
-                Engine.log("byedpi на порту $port завершился - перезапускаю")
+                Engine.err("byedpi на порту $port завершился - перезапускаю")
                 Report.error("byedpi на порту $port завершился")
                 pr.p = Engine.startProxyArgs(ctx, pr.args, port)
             }
         }
         val pl = plan
         if (routerReady && router?.isAlive != true && pl != null) {
-            Engine.log("Маршрутизатор завершился - перезапускаю")
+            Engine.err("Маршрутизатор завершился - перезапускаю")
             Report.error("маршрутизатор завершился")
             startRouter(ctx, pl)
         }

@@ -69,6 +69,33 @@ object Store {
     fun tgWorker(ctx: Context): String = p(ctx).getString("tgWorker", "") ?: ""
     fun setTgWorker(ctx: Context, host: String) = p(ctx).edit().putString("tgWorker", host).apply()
 
+    /** Свои (сгенерированные при глубоком поиске) стратегии: id -> аргументы byedpi */
+    fun custom(ctx: Context): Map<String, List<String>> {
+        val o = runCatching { JSONObject(p(ctx).getString("custom", "{}")!!) }.getOrElse { JSONObject() }
+        return o.keys().asSequence().associateWith { k -> o.getJSONArray(k).let { a -> (0 until a.length()).map { a.getString(it) } } }
+    }
+    fun addCustom(ctx: Context, id: String, args: List<String>) {
+        val o = runCatching { JSONObject(p(ctx).getString("custom", "{}")!!) }.getOrElse { JSONObject() }
+        o.put(id, org.json.JSONArray(args))
+        p(ctx).edit().putString("custom", o.toString()).apply()
+    }
+
+    /** Закреплённые вручную стратегии: сайт -> id */
+    fun pins(ctx: Context): Map<String, String> {
+        val o = runCatching { JSONObject(p(ctx).getString("pins", "{}")!!) }.getOrElse { JSONObject() }
+        return o.keys().asSequence().associateWith { o.getString(it) }
+    }
+    fun setPin(ctx: Context, site: String, id: String?) {
+        val o = runCatching { JSONObject(p(ctx).getString("pins", "{}")!!) }.getOrElse { JSONObject() }
+        if (id == null) o.remove(site) else o.put(site, id)
+        p(ctx).edit().putString("pins", o.toString()).apply()
+    }
+
+    /** Результаты проверок стратегий: id -> сайт -> {ok, stage, ping, kbps, full, at} */
+    fun matrix(ctx: Context): JSONObject =
+        runCatching { JSONObject(p(ctx).getString("matrix", "{}")!!) }.getOrElse { JSONObject() }
+    fun setMatrix(ctx: Context, m: JSONObject) = p(ctx).edit().putString("matrix", m.toString()).apply()
+
     /** Сколько раз каждая стратегия срабатывала - пробуем их первыми. */
     fun worked(ctx: Context): Map<String, Int> {
         val o = runCatching { JSONObject(p(ctx).getString("worked", "{}")!!) }.getOrElse { JSONObject() }
