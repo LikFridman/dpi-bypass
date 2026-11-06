@@ -231,14 +231,13 @@ func buildReport(trigger string) map[string]any {
 
 	mode := map[int]string{modeNoVPN: "no_vpn", modeWithVPN: "with_vpn"}[runMode]
 	rep := map[string]any{
-		"schema":  1,
-		"trigger": trigger,
-		"time":    time.Now().Format(time.RFC3339),
-		"app":     map[string]any{"platform": "windows", "version": version, "mode": mode, "running": engRunning.Load(), "gui": guiMode},
-		"device": map[string]any{
-			"os": "Windows", "build": windowsBuild(), "arch": runtime.GOARCH, "admin": isAdmin(),
-			"webview2": webUIActive, "missing_files": missingZapretFiles(),
-		},
+		"schema":    1,
+		"trigger":   trigger,
+		"time":      time.Now().Format(time.RFC3339),
+		"app":       map[string]any{"platform": "windows", "version": version, "mode": mode, "running": engRunning.Load(), "gui": guiMode},
+		"device":    tmDevice(),
+		"device_id": deviceID(),
+		"actions":   actionsCopy(),
 		"network": map[string]any{
 			"ip": isp.IP, "asn": isp.ASN, "isp": isp.Name, "city": isp.City, "country": isp.Country,
 		},
@@ -250,7 +249,7 @@ func buildReport(trigger string) map[string]any {
 		"baseline": baseline,
 		"tested":   tested,
 		"errors":   errs,
-		"log":      tmLogTail(200),
+		"log":      tmLogTail(400),
 	}
 	if res != nil {
 		rep["sites"] = tmSites(res)
@@ -302,7 +301,21 @@ func buildReport(trigger string) map[string]any {
 		tgInfo["routes"] = tgProxy.RouteStats()
 	}
 	rep["telegram"] = tgInfo
+	if pr, at := lastPing(); pr != nil {
+		rep["ping_all"] = map[string]any{"at": at.Format(time.RFC3339), "sites": pr}
+	}
 	return rep
+}
+
+func tmDevice() map[string]any {
+	d := map[string]any{
+		"os": "Windows", "build": windowsBuild(), "arch": runtime.GOARCH, "admin": isAdmin(),
+		"webview2": webUIActive, "missing_files": missingZapretFiles(),
+	}
+	for k, v := range deviceInfo() {
+		d[k] = v
+	}
+	return d
 }
 
 // ---------- отправка ----------

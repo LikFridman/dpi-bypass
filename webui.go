@@ -494,6 +494,15 @@ func openFile(p string) {
 
 func webCall(cmd, arg string) (any, error) {
 	switch cmd {
+	case "ready", "poll", "logs", "state", "bgGet", "bgSet":
+	default:
+		a := arg
+		if len(a) > 80 {
+			a = a[:80]
+		}
+		recordAction(strings.TrimSpace(cmd + " " + a))
+	}
+	switch cmd {
 	case "ready":
 		select {
 		case uitestReady <- struct{}{}:

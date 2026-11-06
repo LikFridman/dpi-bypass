@@ -255,6 +255,7 @@ class MainActivity : Activity() {
         }
 
         private fun callUnsafe(cmd: String, arg: String): String {
+            if (cmd != "ready" && cmd != "logs") Report.action(if (cmd.startsWith("bg")) cmd else "$cmd ${arg.take(80)}".trim())
             val res: Any? = when (cmd) {
                 "ready" -> {
                     ready = true

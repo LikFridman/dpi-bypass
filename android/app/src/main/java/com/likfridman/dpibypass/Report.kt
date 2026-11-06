@@ -34,6 +34,7 @@ object Report {
 
     private fun siteJson(name: String, p: Probe) = JSONObject().put("name", name).put("ok", p.ok)
         .put("ping_ms", p.ms).put("stage", if (p.ok) "" else p.kind).put("reason", if (p.ok) "" else p.reason)
+        .put("check_stage", p.stage).put("kbps", p.kbps).put("what", p.what)
 
     private fun sitesJson(res: Map<String, Probe>) = JSONArray().also { a ->
         res.toSortedMap().forEach { (n, p) -> a.put(siteJson(n, p)) }
@@ -52,6 +53,38 @@ object Report {
         if (res == null) o.put("start_error", "byedpi не запустился")
         tested.put(o)
     }
+
+    private val actions = ArrayList<String>()
+
+    /** Что нажимали в приложении (последние 80 действий) - чтобы понять, что привело к ошибке */
+    fun action(what: String) = synchronized(lock) {
+        actions.add(SimpleDateFormat("HH:mm:ss", Locale.US).format(Date()) + " " + what.take(120))
+        while (actions.size > 80) actions.removeAt(0)
+    }
+
+    /**
+     * Ключ устройства для группировки отчётов: хэш ANDROID_ID (у каждого телефона свой, не меняется при
+     * переустановке приложения). Сам ANDROID_ID и MAC-адрес не отправляются; MAC приложениям на Android 10+
+     * всё равно недоступен (система отдаёт 02:00:00:00:00:00).
+     */
+    fun deviceId(ctx: Context): String {
+        val base = runCatching {
+            android.provider.Settings.Secure.getString(ctx.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+        }.getOrNull()?.takeIf { it.isNotBlank() && it != "9774d56d682e549c" } ?: run {
+            val sp = ctx.getSharedPreferences("report", Context.MODE_PRIVATE)
+            sp.getString("install_id", null) ?: java.util.UUID.randomUUID().toString().also { sp.edit().putString("install_id", it).apply() }
+        }
+        val h = java.security.MessageDigest.getInstance("SHA-256").digest(("dpi-bypass:" + base).toByteArray())
+        return "a-" + h.take(8).joinToString("") { "%02x".format(it) }
+    }
+
+    /** Название модели для людей («Galaxy M56 5G»): имя устройства, если оно похоже на название модели */
+    private fun marketingName(ctx: Context): String = runCatching {
+        val n = android.provider.Settings.Global.getString(ctx.contentResolver, "device_name") ?: ""
+        val brands = listOf("galaxy", "redmi", "xiaomi", "poco", "pixel", "honor", "huawei", "oneplus", "realme", "oppo", "vivo",
+            "nokia", "motorola", "moto ", "infinix", "tecno", "nothing", "sony", "xperia", "asus", "zenfone", "nova", "mi ")
+        if (brands.any { n.lowercase().contains(it) } || n.contains(Build.MODEL)) n.take(60) else ""
+    }.getOrDefault("")
 
     fun error(msg: String) = synchronized(lock) {
         errors.add(SimpleDateFormat("HH:mm:ss", Locale.US).format(Date()) + " " + msg)
@@ -130,6 +163,7 @@ object Report {
             .put("abi", JSONArray(Build.SUPPORTED_ABIS.toList()))
             .put("kernel", System.getProperty("os.version") ?: "")
             .put("locale", Locale.getDefault().toString()).put("timezone", TimeZone.getDefault().id)
+            .put("marketing_name", marketingName(ctx))
         if (Build.VERSION.SDK_INT >= 31) o.put("soc", Build.SOC_MANUFACTURER + " " + Build.SOC_MODEL)
         runCatching {
             val am = ctx.getSystemService(android.app.ActivityManager::class.java)
@@ -181,10 +215,34 @@ object Report {
 
     private class CrashHandler(val ctx: Context, val prev: Thread.UncaughtExceptionHandler?) : Thread.UncaughtExceptionHandler {
         override fun uncaughtException(t: Thread, e: Throwable) {
-            runCatching { crashFile(ctx).writeText("поток ${t.name}: " + android.util.Log.getStackTraceString(e).take(6000)) }
+            val text = "поток ${t.name}: " + android.util.Log.getStackTraceString(e).take(8000)
+            runCatching { crashFile(ctx).writeText(text) }
+            // отчёт о падении - сразу (до 5 с), не дожидаясь следующего запуска: если приложение падает
+            // при каждом запуске, отложенный отчёт не успевал бы уйти
+            if (Store.consentOK(ctx)) {
+                val th = Thread {
+                    runCatching {
+                        val rep = runCatching { build(ctx, "crash", net = false) }.getOrElse { minimal(ctx, "crash") }
+                        rep.put("crash", text)
+                        val f = File(queueDir(ctx), "${System.currentTimeMillis()}-crash.json")
+                        f.writeText(rep.toString())
+                        if (post(Store.reportUrl(ctx).trimEnd('/'), f) != null) crashFile(ctx).delete()
+                    }
+                }
+                th.start()
+                runCatching { th.join(5000) }
+            }
             prev?.uncaughtException(t, e)
         }
     }
+
+    /** Отчёт на случай, когда полный собрать не вышло */
+    private fun minimal(ctx: Context, trigger: String) = JSONObject().put("schema", 1).put("trigger", trigger)
+        .put("time", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US).format(Date()))
+        .put("app", JSONObject().put("platform", "android").put("version", BuildConfigVersion.name(ctx)))
+        .put("device_id", deviceId(ctx)).put("device", device(ctx))
+        .put("log", JSONArray(Engine.logsSince(0).second.takeLast(200)))
+        .put("actions", synchronized(lock) { JSONArray(actions) })
 
     /** Если в прошлый раз приложение упало - отправить отчёт о падении. */
     fun sendPendingCrash(ctx: Context) {
@@ -192,11 +250,11 @@ object Report {
         if (!f.exists()) return
         val text = runCatching { f.readText() }.getOrDefault("")
         f.delete()
-        error("падение приложения: $text")
-        send(ctx, "crash")
+        error("падение приложения: ${text.lineSequence().take(2).joinToString(" | ")}")
+        send(ctx, "crash", extra = JSONObject().put("crash", text))
     }
 
-    fun build(ctx: Context, trigger: String): JSONObject {
+    fun build(ctx: Context, trigger: String, net: Boolean = true): JSONObject {
         val st = Engine.strategyById(Store.strategy(ctx))
         val (_, lines) = Engine.logsSince(0)
         val r = JSONObject()
@@ -206,7 +264,7 @@ object Report {
                 .put("running", Engine.running).put("boot", Store.boot(ctx)))
             .put("device", device(ctx))
             .put("program", appState(ctx))
-            .put("network", network(ctx))
+            .put("network", if (net) network(ctx) else JSONObject())
             .put("vpn", JSONObject().put("detected", otherVpnBeforeStart).put("note", "на Android обход сам является VPN; detected - был ли другой VPN до включения"))
             .put("plan", (Pool.plan ?: Store.plan(ctx))?.toJson() ?: JSONObject())
             .put("router", JSONObject().put("ready", Pool.routerReady).put("stats", runCatching { JSONObject(Pool.routerStats) }.getOrElse { JSONObject() }))
@@ -220,10 +278,14 @@ object Report {
                 .put("routes", runCatching { JSONObject(TgProxy.routes) }.getOrElse { JSONObject() })
                 .put("backup_proxies", Store.tgProxies(ctx).size).put("worker", Store.tgWorker(ctx).isNotBlank())
                 .put("error", TgProxy.lastError).put("public_found", TgProxy.found))
-            .put("log", JSONArray(lines.takeLast(200).map { it.take(400) }))
+            .put("log", JSONArray(lines.takeLast(400).map { it.take(400) }))
+            .put("device_id", deviceId(ctx))
+            .put("ping_all", if (Engine.checkedAt > 0) JSONObject().put("at", Engine.checkedAt).put("sites", sitesJson(Engine.results)) else JSONObject())
+            .put("strategy_results", runCatching { Store.matrix(ctx) }.getOrElse { JSONObject() })
+            .put("pins", JSONObject(Store.pins(ctx)))
         synchronized(lock) {
             r.put("baseline", JSONArray(baseline.toString())).put("tested", JSONArray(tested.toString()))
-                .put("errors", JSONArray(errors))
+                .put("errors", JSONArray(errors)).put("actions", JSONArray(actions))
         }
         // счётчики для сводки на сервере: total = connections, failed
         TgProxy.stats.let { s ->
@@ -255,16 +317,38 @@ object Report {
     }
 
     /** Собирает отчёт, ставит в очередь и отправляет всё накопленное. done - сообщение для пользователя. */
-    fun send(ctx: Context, trigger: String, done: ((String) -> Unit)? = null) {
+    fun send(ctx: Context, trigger: String, done: ((String) -> Unit)? = null, extra: JSONObject? = null) {
         if (!Store.consentOK(ctx)) return
         val app = ctx.applicationContext
         Thread {
             runCatching {
-                val dir = queueDir(app)
-                File(dir, "${System.currentTimeMillis()}-${(1000..9999).random()}.json").writeText(build(app, trigger).toString())
+                val r = build(app, trigger)
+                extra?.keys()?.forEach { k -> r.put(k, extra.get(k)) }
+                File(queueDir(app), "${System.currentTimeMillis()}-${(1000..9999).random()}.json").writeText(r.toString())
                 flush(app, done)
             }.onFailure { done?.invoke("Отчёт не собран: ${it.message}") }
         }.start()
+    }
+
+    /**
+     * Отправить один файл отчёта. Возвращает номер отчёта; null - не отправлен (файл остаётся в очереди),
+     * "" - сервер его никогда не примет (файл удаляется).
+     */
+    private fun post(url: String, f: File): String? {
+        if (!url.startsWith("https://")) return null
+        val c = URL("$url/report").openConnection() as HttpURLConnection
+        c.connectTimeout = 8000; c.readTimeout = 15000
+        c.requestMethod = "POST"; c.doOutput = true
+        c.setRequestProperty("Content-Type", "application/json")
+        c.outputStream.use { it.write(f.readBytes()) }
+        val code = c.responseCode
+        val body = runCatching { (if (code < 400) c.inputStream else c.errorStream).bufferedReader().readText() }.getOrDefault("")
+        c.disconnect()
+        return when (code) {
+            200 -> runCatching { JSONObject(body).optString("id") }.getOrDefault("").ifEmpty { null }?.also { f.delete() }
+            400, 413 -> { Engine.dbg("отчёт отклонён сервером ($code): $body"); f.delete(); "" }
+            else -> { Engine.dbg("сервер отчётов ответил $code: ${body.take(200)}"); null }
+        }
     }
 
     @Synchronized
@@ -277,35 +361,16 @@ object Report {
             return
         }
         for (f in files.takeLast(20)) {
-            val code: Int
-            val body: String
-            try {
-                val c = URL("$url/report").openConnection() as HttpURLConnection
-                c.connectTimeout = 8000; c.readTimeout = 15000
-                c.requestMethod = "POST"; c.doOutput = true
-                c.setRequestProperty("Content-Type", "application/json")
-                c.outputStream.use { it.write(f.readBytes()) }
-                code = c.responseCode
-                body = runCatching { (if (code < 400) c.inputStream else c.errorStream).bufferedReader().readText() }.getOrDefault("")
-                c.disconnect()
+            val id = try {
+                post(url, f)
             } catch (e: Exception) {
+                Engine.dbg("отчёт не отправился: ${e.message}")
                 done?.invoke("Отчёт не отправился (${e.message}), попробую позже")
                 return
             }
-            when (code) {
-                200 -> {
-                    val id = runCatching { JSONObject(body).optString("id") }.getOrDefault("")
-                    if (id.isEmpty()) {
-                        // ответил не наш сервер отчётов (например, шаблон Worker'а) - отчёт не теряем
-                        done?.invoke("Сервер отчётов ещё не настроен - отчёт сохранён и уйдёт позже")
-                        return
-                    }
-                    f.delete()
-                    Engine.log("Отчёт для разработчика отправлен, номер $id")
-                    done?.invoke("Отчёт отправлен, номер $id")
-                }
-                400, 413 -> f.delete()
-                else -> return
+            when {
+                id == null -> { done?.invoke("Сервер отчётов не принял отчёт - он сохранён и уйдёт позже"); return }
+                id.isNotEmpty() -> { Engine.log("Отчёт для разработчика отправлен, номер $id"); done?.invoke("Отчёт отправлен, номер $id") }
             }
         }
     }
