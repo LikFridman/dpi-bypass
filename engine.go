@@ -229,6 +229,53 @@ func testStrategies(list []Strategy, cands []Service, stopWhenAll bool) map[stri
 	return works
 }
 
+// fastStrategies - n лучших стратегий для быстрого подбора и остальные (в прежнем порядке).
+// Лучшие: из пресета провайдера (orderedStrategies ставит их первыми), затем уже срабатывавшие
+// на этом компьютере (по числу сервисов, которые открывали), затем первые в общем списке.
+func fastStrategies(list []Strategy, n int) (fast, rest []Strategy) {
+	if len(list) <= n {
+		return list, nil
+	}
+	preset := map[string]bool{}
+	for _, id := range ispPreset(currentISP().ASN) {
+		preset[id] = true
+	}
+	score := map[string]int{}
+	for id, m := range loadResults() {
+		for _, r := range m {
+			if r.OK {
+				score[id]++
+			}
+		}
+	}
+	idx := map[string]int{}
+	for i, st := range list {
+		idx[st.ID] = i
+	}
+	order := append([]Strategy{}, list...)
+	sort.SliceStable(order, func(a, b int) bool {
+		x, y := order[a], order[b]
+		if preset[x.ID] != preset[y.ID] {
+			return preset[x.ID]
+		}
+		if score[x.ID] != score[y.ID] {
+			return score[x.ID] > score[y.ID]
+		}
+		return idx[x.ID] < idx[y.ID]
+	})
+	in := map[string]bool{}
+	for _, st := range order[:n] {
+		in[st.ID] = true
+		fast = append(fast, st)
+	}
+	for _, st := range list {
+		if !in[st.ID] {
+			rest = append(rest, st)
+		}
+	}
+	return fast, rest
+}
+
 // coverGroups жадно покрывает сервисы минимальным числом стратегий
 func coverGroups(list []Strategy, cands []Service, works map[string]map[string]bool) ([]Group, map[string]bool) {
 	remaining := map[string]bool{}
@@ -333,13 +380,40 @@ func selectConfig(svcs []Service, prev *Config) *Config {
 	}
 
 	list := orderedStrategies()
-	title("Перебор стратегий (%d шт.)", len(list))
-	// для YouTube нужны все подходящие стратегии, чтобы выбрать самую быструю
-	works := testStrategies(list, cands, !ytIn)
+	// 1) быстрый подбор: несколько лучших стратегий (для этого провайдера, уже срабатывавшие здесь,
+	//    самые удачные в целом); 2) если они открыли не всё - полный перебор остальных
+	fast, rest := fastStrategies(list, 6)
+	title("Быстрый подбор: %d лучших стратегий", len(fast))
+	works := testStrategies(fast, cands, !ytIn)
 	if ytIn {
-		pickFastestYouTube(list, works)
+		pickFastestYouTube(fast, works)
 	}
-	groups, remaining := coverGroups(list, cands, works)
+	groups, remaining := coverGroups(fast, cands, works)
+	list = append(append([]Strategy{}, fast...), rest...)
+	if len(remaining) > 0 && len(rest) > 0 && !cancelled() {
+		var left []Service
+		ytLeft := false
+		for _, s := range cands {
+			if remaining[s.Name] {
+				left = append(left, s)
+				ytLeft = ytLeft || s.Name == "YouTube"
+			}
+		}
+		var names []string
+		for _, s := range left {
+			names = append(names, s.Name)
+		}
+		title("Полный перебор (%d шт.) для: %s", len(rest), strings.Join(names, ", "))
+		for id, m := range testStrategies(rest, left, !ytLeft) {
+			works[id] = m
+		}
+		if ytLeft {
+			pickFastestYouTube(rest, works)
+		}
+		groups, remaining = coverGroups(list, cands, works)
+	} else if len(remaining) == 0 {
+		good("Быстрый подбор открыл всё - полный перебор не нужен")
+	}
 	cfg.Groups = groups
 	if old := loadConfig(); old != nil && len(old.Pins) > 0 {
 		cfg.Pins = old.Pins

@@ -737,6 +737,24 @@ func windowsBuild() uint32 {
 	return v.Build
 }
 
+var (
+	pGetDpiForSystem = syscall.NewLazyDLL("user32.dll").NewProc("GetDpiForSystem")
+	pSetWindowPos    = syscall.NewLazyDLL("user32.dll").NewProc("SetWindowPos")
+	pRtlMoveMemory   = syscall.NewLazyDLL("kernel32.dll").NewProc("RtlMoveMemory")
+)
+
+// systemDPI - масштаб экрана (96 = 100%, 144 = 150%)
+func systemDPI() uint32 {
+	if pGetDpiForSystem.Find() != nil {
+		return 96
+	}
+	d, _, _ := pGetDpiForSystem.Call()
+	if d < 96 || d > 480 {
+		return 96
+	}
+	return uint32(d)
+}
+
 func dwmAttr(hwnd uintptr, attr uint32, val uint32) bool {
 	r, _, _ := pDwmSetWindowAttribute.Call(hwnd, uintptr(attr), uintptr(unsafe.Pointer(&val)), 4)
 	return r == 0
@@ -773,6 +791,11 @@ func webWndProc(hwnd, msg, wp, lp uintptr) uintptr {
 			hideToTray()
 			return 0
 		}
+	case 0x02E0: // WM_DPICHANGED: окно перенесли на экран с другим масштабом - берём размер, который предлагает Windows
+		var r [4]int32
+		pRtlMoveMemory.Call(uintptr(unsafe.Pointer(&r[0])), lp, 16)
+		pSetWindowPos.Call(hwnd, 0, uintptr(r[0]), uintptr(r[1]), uintptr(r[2]-r[0]), uintptr(r[3]-r[1]), 0x0014) // SWP_NOZORDER|SWP_NOACTIVATE
+		return 0
 	case wmAppTray:
 		switch uint32(lp & 0xFFFF) {
 		case wmLButtonUp, wmLButtonDblClk:
@@ -825,15 +848,15 @@ func runWebUI(cmd string) bool {
 	runtime.LockOSThread()
 	uitestMode = cmd == "uitest"
 	build := windowsBuild()
-	glass := build >= 22621 && !uitestMode
-	if glass {
-		os.Setenv("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "00000000") // прозрачная страница поверх стекла
-	}
+	glass := false // системное стекло выключено: с ним текст и карточки были мыльными
+	// программа объявлена в манифесте как поддерживающая масштаб экрана (PerMonitorV2), поэтому
+	// Windows не растягивает окно картинкой - размеры окна задаём с учётом масштаба
+	scale := func(v int) int { return v * int(systemDPI()) / 96 }
 	w := webview2.NewWithOptions(webview2.WebViewOptions{
 		DataPath:  filepath.Join(dataDir, "webview"),
 		AutoFocus: true,
 		WindowOptions: webview2.WindowOptions{
-			Title: webTitle, Width: 1180, Height: 760, Center: true,
+			Title: webTitle, Width: uint(scale(1180)), Height: uint(scale(760)), Center: true,
 		},
 	})
 	if w == nil {
@@ -858,7 +881,7 @@ func runWebUI(cmd string) bool {
 	} else {
 		setupGlass(hwnd) // хотя бы тёмный заголовок
 	}
-	w.SetSize(980, 640, webview2.HintMin)
+	w.SetSize(scale(980), scale(640), webview2.HintMin)
 	webOrigProc, _, _ = pSetWindowLongPtrW.Call(hwnd, uintptr(^uintptr(3)), syscall.NewCallback(webWndProc)) // GWLP_WNDPROC = -4
 	msgTaskbarCreated, _, _ = pRegisterWindowMessageW.Call(uintptr(unsafe.Pointer(u16("TaskbarCreated"))))
 	trayCommand = webTrayCommand

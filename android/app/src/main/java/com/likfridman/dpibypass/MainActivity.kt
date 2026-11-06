@@ -58,7 +58,18 @@ class MainActivity : Activity() {
         web.settings.domStorageEnabled = true
         web.settings.allowFileAccess = false
         web.addJavascriptInterface(Bridge(), "Android")
-        web.webViewClient = WebViewClient()
+        web.webViewClient = object : WebViewClient() {
+            // упал процесс отрисовки страницы (нехватка памяти, сбой WebView) - без этого Android закрывает приложение
+            override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
+                val why = if (Build.VERSION.SDK_INT >= 26 && detail?.didCrash() == true) "сбой" else "нехватка памяти"
+                Engine.err("Страница перезапущена: процесс WebView завершился ($why)")
+                Report.error("WebView renderer gone: $why")
+                (view?.parent as? android.view.ViewGroup)?.removeView(view)
+                view?.destroy()
+                ui.post { recreate() }
+                return true
+            }
+        }
         web.webChromeClient = object : WebChromeClient() {
             override fun onShowFileChooser(view: WebView?, cb: ValueCallback<Array<Uri>>?, params: FileChooserParams?): Boolean {
                 fileCb?.onReceiveValue(null)
@@ -109,6 +120,36 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Ошибка команды из страницы: не роняем приложение, а пишем в журнал, отчёт и показываем сообщение */
+    private fun commandFailed(cmd: String, e: Throwable) {
+        val st = android.util.Log.getStackTraceString(e).lines().take(8).joinToString(" | ")
+        Engine.err("Ошибка команды $cmd: ${e.javaClass.simpleName}: ${e.message}")
+        Report.error("команда $cmd: $st")
+        toast("Ошибка: ${e.message ?: e.javaClass.simpleName} - отчёт отправлен")
+        Report.send(this, "error")
+    }
+
+    /** Фоновый поток для команды: исключение внутри не завершает приложение */
+    private fun safeThread(body: () -> Unit) = Thread {
+        try {
+            body()
+        } catch (e: Throwable) {
+            Engine.busy = false
+            Engine.pinging = false
+            commandFailed("фон", e)
+        }
+    }
+
+    /** Выполнить JS на странице и дождаться результата (для автотеста интерфейса). null - страница не ответила */
+    fun evalJs(code: String, timeoutMs: Long = 5000): String? {
+        if (isFinishing || isDestroyed) return null
+        val latch = java.util.concurrent.CountDownLatch(1)
+        var r: String? = null
+        ui.post { runCatching { web.evaluateJavascript(code) { r = it; latch.countDown() } }.onFailure { latch.countDown() } }
+        latch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+        return r
+    }
+
     private fun js(code: String) = ui.post { web.evaluateJavascript(code, null) }
 
     private fun event(e: JSONObject) = synchronized(events) { events.put(e) }
@@ -118,6 +159,15 @@ class MainActivity : Activity() {
     /** Раз в 300 мс отправляет в страницу состояние и новые строки журнала. */
     private val pusher = object : Runnable {
         override fun run() {
+            try {
+                push()
+            } catch (e: Throwable) {
+                Engine.dbg("обновление страницы: ${e.javaClass.simpleName}: ${e.message}")
+            }
+            ui.postDelayed(this, 300)
+        }
+
+        private fun push() {
             if (ready) {
                 val st = Engine.stateJson(this@MainActivity).toString()
                 val (seq, lines) = Engine.logsSince(logSeq)
@@ -131,7 +181,6 @@ class MainActivity : Activity() {
                     web.evaluateJavascript("window.__push&&window.__push($m)", null)
                 }
             }
-            ui.postDelayed(this, 300)
         }
     }
 
@@ -198,7 +247,14 @@ class MainActivity : Activity() {
 
     inner class Bridge {
         @JavascriptInterface
-        fun call(cmd: String, arg: String): String {
+        fun call(cmd: String, arg: String): String = try {
+            callUnsafe(cmd, arg)
+        } catch (e: Throwable) {
+            commandFailed(cmd, e)
+            "null"
+        }
+
+        private fun callUnsafe(cmd: String, arg: String): String {
             val res: Any? = when (cmd) {
                 "ready" -> {
                     ready = true
@@ -212,7 +268,7 @@ class MainActivity : Activity() {
                 "reselect" -> { ui.post { startBypass(true) }; null }
                 "stop" -> { Engine.cancel = true; toast("Останавливаю..."); null }
                 "diag" -> {
-                    if (!Engine.busy) Thread {
+                    if (!Engine.busy) safeThread {
                         Engine.busy = true
                         try {
                             Engine.log("━━ Диагностика: без обхода ━━")
@@ -223,7 +279,7 @@ class MainActivity : Activity() {
                     null
                 }
                 "pingAll" -> {
-                    if (!Engine.pinging && !Engine.busy) Thread {
+                    if (!Engine.pinging && !Engine.busy) safeThread {
                         val r = Engine.pingAll(this@MainActivity)
                         toast("Ping all: ${r.values.count { it.ok }}/${r.size} work")
                     }.start()
@@ -233,7 +289,7 @@ class MainActivity : Activity() {
                 "testStrategy" -> {
                     val (site, id) = arg.split("|").let { (it.getOrNull(0) ?: "") to (it.getOrNull(1) ?: "") }
                     if (Engine.busy) toast("Сейчас идёт подбор - подожди")
-                    else Thread {
+                    else safeThread {
                         Engine.busy = true
                         try {
                             val r = Engine.testOne(this@MainActivity, site, id)
@@ -245,7 +301,7 @@ class MainActivity : Activity() {
                 }
                 "pin" -> {
                     val (site, id) = arg.split("|").let { (it.getOrNull(0) ?: "") to (it.getOrNull(1) ?: "") }
-                    Thread {
+                    safeThread {
                         val pl = Engine.pin(this@MainActivity, site, id.ifEmpty { null })
                         if (Engine.running) Pool.start(this@MainActivity, pl)
                         toast(if (id.isEmpty()) "$site: автоматический выбор" else "$site: стратегия закреплена")
@@ -291,7 +347,7 @@ class MainActivity : Activity() {
                     null
                 }
                 "tgTest" -> {
-                    Thread {
+                    safeThread {
                         val (ms, err) = TgProxy.check(this@MainActivity)
                         val msg = if (ms != null) "Telegram отвечает: ping $ms ms" else "Telegram не ответил: $err"
                         Engine.log(msg)
@@ -306,7 +362,7 @@ class MainActivity : Activity() {
                         else -> if (arg in listOf("auto", "ws", "direct")) Store.setTgMode(this@MainActivity, arg)
                     }
                     // перезапустить процессы обхода с новыми настройками (план тот же)
-                    if (Engine.running) Thread { Pool.plan?.let { Pool.start(this@MainActivity, it) } }.start()
+                    if (Engine.running) safeThread { Pool.plan?.let { Pool.start(this@MainActivity, it) } }.start()
                     null
                 }
                 "tgFind" -> { TgProxy.discoverAsync(this@MainActivity, true) { toast(it) }; null }

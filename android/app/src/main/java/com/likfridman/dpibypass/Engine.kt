@@ -353,8 +353,14 @@ object Engine {
             r.forEach { (site, p) -> saveResult(m, s.id, site, p, false) }
             Report.recordStrategy(s, cands, r)
             dbg("[${s.id}] ${s.name}: " + cands.joinToString("  ") { (if (r[it.name]?.ok == true) "✓" else "✗") + it.name })
-            // хватит: у каждого сервиса есть хотя бы 2 рабочие стратегии
-            if (i + 1 >= 8 && cands.all { c -> light.values.count { it[c.name]?.ok == true } >= 2 }) break
+            // быстрый подбор: хватит, если одна стратегия открыла всё, или после 4 лучших у каждого
+            // сервиса есть рабочая; иначе - перебор дальше (обычный режим)
+            val covered = cands.all { c -> light.values.any { it[c.name]?.ok == true } }
+            if (covered && (cands.all { r[it.name]?.ok == true } || i + 1 >= 4)) {
+                log("Быстрый подбор: хватило ${i + 1} из ${order.size} стратегий")
+                break
+            }
+            if (i + 1 == 4) log("Быстрый подбор открыл не всё - перебираю остальные стратегии")
         }
         progTotal = 0
 
@@ -399,21 +405,37 @@ object Engine {
             uncovered = cands.filter { c -> light.values.none { it[c.name]?.ok == true } }
         }
 
-        // 4) полная проверка до 3 лучших для каждого сервиса, выбор по скорости
+        // 4) полная проверка с нагрузкой. Сначала одна общая стратегия для всех (если такая есть) -
+        //    одним прогоном; сервисы, которым она не подошла, - по очереди до 3 лучших кандидатов
         val best = LinkedHashMap<String, Pair<String, Int>>() // сайт -> (стратегия, КБ/с)
         val speeds = lastSpeeds
-        for (c in cands) {
-            if (cancel) break
-            val top = light.entries.filter { it.value[c.name]?.ok == true }
-                .sortedByDescending { it.value[c.name]?.kbps ?: 0 }.take(3)
-            for ((k, e) in top.withIndex()) {
-                status = "Verifying ${c.name}: ${k + 1}/${top.size}"
-                val s = strategyById(e.key) ?: continue
-                val r = testStrategy(ctx, s, listOf(c), false)?.get(c.name) ?: continue
+        fun verify(s: Strategy, list: List<Site>) {
+            val res = testStrategy(ctx, s, list, false) ?: return
+            for (c in list) {
+                val r = res[c.name] ?: continue
                 saveResult(m, s.id, c.name, r, true)
                 if (c.name == "YouTube") speeds.put(s.id, r.kbps)
                 dbg("[проверка] ${c.name} + ${s.name}: ${if (r.ok) speedText(r.kbps) else r.detail}")
                 if (r.ok && r.kbps > (best[c.name]?.second ?: -1)) best[c.name] = s.id to r.kbps
+            }
+        }
+        val common = light.entries.filter { e -> cands.all { e.value[it.name]?.ok == true } }
+            .maxByOrNull { e -> cands.sumOf { e.value[it.name]?.kbps ?: 0 } }
+        if (common != null && !cancel) {
+            status = "Verifying ${strategyById(common.key)?.name ?: common.key}"
+            strategyById(common.key)?.let { verify(it, cands) }
+        }
+        for (c in cands) {
+            if (cancel) break
+            // YouTube: если видео быстрое - дальше не ищем, иначе пробуем ещё кандидатов
+            if (best[c.name]?.let { c.name != "YouTube" || it.second >= YT_SLOW_KBPS * 3 } == true) continue
+            val top = light.entries.filter { it.value[c.name]?.ok == true && it.key != common?.key }
+                .sortedByDescending { it.value[c.name]?.kbps ?: 0 }.take(if (best[c.name] == null) 3 else 2)
+            for ((k, e) in top.withIndex()) {
+                if (cancel) break
+                status = "Verifying ${c.name}: ${k + 1}/${top.size}"
+                strategyById(e.key)?.let { verify(it, listOf(c)) }
+                if (best[c.name]?.let { c.name != "YouTube" || it.second >= YT_SLOW_KBPS * 3 } == true) break
             }
         }
         Store.setMatrix(ctx, m)

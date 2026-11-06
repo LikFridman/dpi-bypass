@@ -7,8 +7,12 @@ adb shell appops set $PKG ACTIVATE_VPN allow
 adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS || true
 adb logcat -c
 adb shell am start -n $PKG/.MainActivity --ez selftest true
-for i in $(seq 1 300); do adb logcat -d -s DPI_SELFTEST:I | grep -q "RESULT" && break; sleep 2; done
+for i in $(seq 1 420); do adb logcat -d -s DPI_SELFTEST:I | grep -q "RESULT" && break; sleep 2; done
 adb logcat -d -s DPI_SELFTEST:I dpi-bypass:I | tee android-selftest.txt
+# падения приложения и процесса страницы
+adb logcat -d -b crash | tee -a android-selftest.txt
+if adb logcat -d -b crash | grep -q "$PKG"; then echo "FAIL приложение падало (см. выше)" | tee -a android-selftest.txt; fi
+adb shell pidof $PKG >/dev/null && echo "OK   процесс приложения жив" | tee -a android-selftest.txt || echo "FAIL процесс приложения завершился" | tee -a android-selftest.txt
 # запрос из оболочки эмулятора идёт через туннель обхода (оболочка не исключена из VPN)
 sleep 5
 echo "--- запросы из оболочки эмулятора (идут через туннель обхода) ---" | tee -a android-selftest.txt
@@ -25,4 +29,4 @@ for p in sites tg log set; do
 done
 adb shell am start -n $PKG/.MainActivity --es page home
 ls -la docs/screens
-grep -q "RESULT OK" android-selftest.txt
+grep -q "RESULT OK" android-selftest.txt && ! grep -q "^FAIL" android-selftest.txt

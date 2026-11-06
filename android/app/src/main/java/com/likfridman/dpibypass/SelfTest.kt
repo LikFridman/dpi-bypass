@@ -102,6 +102,7 @@ object SelfTest {
             var up = false
             for (i in 0 until 60) { if (Engine.running) { up = true; break }; Thread.sleep(500) }
             check("VPN-туннель поднялся", up, Engine.status)
+            if (up) UiTest.run(a) { n, ok, d -> check(n, ok, d) }
         } else {
             check("VPN-туннель (нет разрешения - пропущено)", true)
         }
