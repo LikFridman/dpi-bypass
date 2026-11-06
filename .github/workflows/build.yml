@@ -197,6 +197,17 @@ jobs:
           sha256sum dpi-bypass.apk | tee dpi-bypass.apk.sha256
           echo "$APP_VERSION" > dpi-bypass-android.version
 
+      - name: Положить APK в репозиторий (сразу после сборки, до долгой проверки в эмуляторе)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f dpi-bypass.apk dpi-bypass.apk.sha256 dpi-bypass-android.version
+          if git diff --cached --quiet; then echo "без изменений"; exit 0; fi
+          git commit -m "Сборка dpi-bypass.apk (GitHub Actions) [skip ci]"
+          git pull --rebase -X theirs origin main
+          git push origin HEAD:main
+
       - name: KVM для эмулятора
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -224,14 +235,3 @@ jobs:
             dpi-bypass.apk.sha256
             android-selftest.txt
             docs/screens
-
-      - name: Положить APK в репозиторий
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f dpi-bypass.apk dpi-bypass.apk.sha256 dpi-bypass-android.version
-          if git diff --cached --quiet; then echo "без изменений"; exit 0; fi
-          git commit -m "Сборка dpi-bypass.apk (GitHub Actions) [skip ci]"
-          git pull --rebase -X theirs origin main
-          git push origin HEAD:main
