@@ -288,6 +288,7 @@ func (r *ringBuf) Tail() string {
 }
 
 type Winws struct {
+	args []string
 	cmd  *exec.Cmd
 	out  *ringBuf
 	done chan struct{}
@@ -303,7 +304,7 @@ func startWinws(args []string) (*Winws, error) {
 		// без привязки к настоящему адаптеру winws полез бы внутрь VPN-туннеля и сломал его
 		return nil, fmt.Errorf("включён VPN-туннель, а физический адаптер не найден - обход не запускаю, чтобы не сломать VPN")
 	}
-	w := &Winws{out: &ringBuf{}, done: make(chan struct{})}
+	w := &Winws{args: args, out: &ringBuf{}, done: make(chan struct{})}
 	w.cmd = exec.Command(zp("winws.exe"), args...)
 	w.cmd.Dir = zapDir
 	w.cmd.Stdout, w.cmd.Stderr = w.out, w.out

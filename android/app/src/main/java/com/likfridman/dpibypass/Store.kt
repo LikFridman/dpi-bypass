@@ -22,7 +22,7 @@ object Store {
         p(ctx).edit().putInt("bgDim", dim.coerceIn(0, 90)).putInt("bgBlur", blur.coerceIn(0, 30)).apply()
 
     /** Принятая версия пользовательского соглашения (0 - не принято). */
-    const val AGREEMENT_VERSION = 1
+    const val AGREEMENT_VERSION = 2
     fun consentOK(ctx: Context) = p(ctx).getInt("consent", 0) >= AGREEMENT_VERSION
     fun setConsent(ctx: Context, ok: Boolean) =
         p(ctx).edit().putInt("consent", if (ok) AGREEMENT_VERSION else 0).putLong("consentAt", System.currentTimeMillis()).apply()

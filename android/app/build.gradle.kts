@@ -3,7 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-val appVersion = (System.getenv("APP_VERSION") ?: "1.7").ifBlank { "1.7" }
+val appVersion = (System.getenv("APP_VERSION") ?: "1.8").ifBlank { "1.8" }
 val parts = appVersion.split(".").map { it.toIntOrNull() ?: 0 } + listOf(0, 0, 0)
 
 android {

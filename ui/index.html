@@ -344,8 +344,7 @@ h2{margin:0;font-size:15px;font-weight:700}
 <div class="toasts" id="toasts"></div>
 <div class="modal agr" id="agr" role="dialog" aria-modal="true" aria-label="Пользовательское соглашение"><div class="dlg glass">
   <div class="txt" id="agrText"></div>
-  <label id="agrChkL"><input type="checkbox" id="agrChk"> Я прочитал(а) и принимаю соглашение, включая автоматическую отправку технических отчётов</label>
-  <div class="row" style="justify-content:flex-end"><button class="btn" id="agrNo">Отказаться</button><button class="btn pri" id="agrYes" disabled>Принять</button></div>
+  <div class="row" style="justify-content:flex-end"><button class="btn" id="agrNo">Закрыть</button><button class="btn pri" id="agrYes">Принять</button></div>
 </div></div>
 <div class="modal" id="modal" role="dialog" aria-modal="true"><div class="dlg glass"><p id="mText"></p><div class="row" style="justify-content:flex-end"><button class="btn" id="mNo">No</button><button class="btn pri" id="mYes">Yes</button></div></div></div>
 
@@ -502,23 +501,21 @@ function mdHtml(t){
   });
   return h+(inUl?"</ul>":"");
 }
-let agrOpen=false,agrMust=false;
+let agrOpen=false,agrMust=false,agrDone=false;
 function showAgreement(must){
-  if(agrOpen&&!must)return;agrOpen=true;agrMust=must;
-  call("agreement").then(t=>{$("#agrText").innerHTML=mdHtml(t||"");});
-  $("#agrChkL").style.display=must?"":"none";$("#agrNo").textContent=must?"Отказаться":"Закрыть";
-  $("#agrYes").style.display=must?"":"none";$("#agrChk").checked=false;$("#agrYes").disabled=true;
+  if(agrOpen&&(!must||agrMust))return;agrOpen=true;agrMust=must;
+  call("agreement").then(t=>{$("#agrText").innerHTML=mdHtml(t||"");$("#agrText").scrollTop=0});
+  $("#agrYes").style.display=must?"":"none";$("#agrNo").style.display=must?"none":"";
   $("#agr").classList.add("on");
 }
-$("#agrChk").addEventListener("change",e=>{$("#agrYes").disabled=!e.target.checked});
-$("#agrYes").addEventListener("click",()=>{agrOpen=false;$("#agr").classList.remove("on");call("consent","1");toast("Соглашение принято")});
-$("#agrNo").addEventListener("click",()=>{agrOpen=false;$("#agr").classList.remove("on");if(agrMust)call("consent","0")});
+$("#agrYes").addEventListener("click",()=>{agrOpen=false;agrMust=false;$("#agr").classList.remove("on");agrDone=true;call("consent","1")});
+$("#agrNo").addEventListener("click",()=>{if(agrMust)return;agrOpen=false;$("#agr").classList.remove("on")});
 $("#agrShow").addEventListener("click",()=>showAgreement(false));
 
 window.__push=function(m){
   if(m.state)apply(m.state);
   if(m.logs)addLogs(m.logs);
-  if(m.state&&m.state.needConsent&&!agrOpen)showAgreement(true);
+  if(m.state&&m.state.needConsent&&!agrOpen&&!agrDone)showAgreement(true);
   (m.events||[]).forEach(e=>{if(e.t==="consent")showAgreement(true);if(e.t==="toast")toast(e.text);if(e.t==="confirm")confirmBox(e.id,e.text);if(e.t==="go")go(e.p)});
 };
 window.addEventListener("error",e=>call("jsError",(e.message||"")+" @"+(e.lineno||"")));

@@ -4,6 +4,7 @@ package main
 
 import (
 	"dpibypass/tg"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -88,6 +89,12 @@ func selftest() int {
 			say("[!] Telegram через прокси: %v (не критично)", cerr)
 		}
 		px.Close()
+	}
+	if b, err := json.Marshal(buildReport("test")); err == nil {
+		check("отчёт собирается", len(b) > 500, fmt.Sprintf("%d байт", len(b)))
+		say("%s", shortText(string(b), 3000))
+	} else {
+		check("отчёт собирается", false, err.Error())
 	}
 	_, verOK := latestVersion()
 	check("проверка версии на GitHub", verOK || true, "(не критично)")

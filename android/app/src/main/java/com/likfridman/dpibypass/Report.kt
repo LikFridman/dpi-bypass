@@ -64,6 +64,36 @@ object Report {
         val o = JSONObject()
         runCatching {
             val cm = ctx.getSystemService(ConnectivityManager::class.java)
+            val net = cm.activeNetwork
+            val caps = cm.getNetworkCapabilities(net)
+            caps?.let { c ->
+                o.put("metered", !c.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED))
+                    .put("validated", c.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED))
+                    .put("down_kbps", c.linkDownstreamBandwidthKbps).put("up_kbps", c.linkUpstreamBandwidthKbps)
+                    .put("vpn_transport", c.hasTransport(NetworkCapabilities.TRANSPORT_VPN))
+            }
+            cm.getLinkProperties(net)?.let { lp ->
+                o.put("interface", lp.interfaceName ?: "")
+                    .put("dns", JSONArray(lp.dnsServers.map { it.hostAddress }))
+                    .put("private_dns_active", if (Build.VERSION.SDK_INT >= 28) lp.isPrivateDnsActive else false)
+                    .put("private_dns_server", if (Build.VERSION.SDK_INT >= 28) lp.privateDnsServerName ?: "" else "")
+                    .put("mtu", if (Build.VERSION.SDK_INT >= 29) lp.mtu else 0)
+                    .put("local_ips", JSONArray(lp.linkAddresses.map { it.toString() }))
+            }
+            @Suppress("DEPRECATION")
+            o.put("networks", JSONArray(cm.allNetworks.mapNotNull { n ->
+                cm.getNetworkCapabilities(n)?.let { c ->
+                    listOf("wifi" to NetworkCapabilities.TRANSPORT_WIFI, "cellular" to NetworkCapabilities.TRANSPORT_CELLULAR,
+                        "vpn" to NetworkCapabilities.TRANSPORT_VPN, "ethernet" to NetworkCapabilities.TRANSPORT_ETHERNET)
+                        .filter { c.hasTransport(it.second) }.joinToString("+") { it.first }
+                }
+            }))
+        }
+        runCatching {
+            o.put("private_dns_mode", android.provider.Settings.Global.getString(ctx.contentResolver, "private_dns_mode") ?: "")
+        }
+        runCatching {
+            val cm = ctx.getSystemService(ConnectivityManager::class.java)
             val caps = cm.getNetworkCapabilities(cm.activeNetwork)
             o.put("type", when {
                 caps == null -> "none"
@@ -76,6 +106,7 @@ object Report {
         runCatching {
             val tm = ctx.getSystemService(TelephonyManager::class.java)
             o.put("operator", tm.networkOperatorName).put("sim_operator", tm.simOperatorName)
+                .put("mcc_mnc", tm.networkOperator).put("roaming", tm.isNetworkRoaming)
         }
         // внешний IP и провайдер (приложение исключено из своего VPN - это настоящий провайдер)
         runCatching {
@@ -90,10 +121,80 @@ object Report {
         return o
     }
 
-    private fun device() = JSONObject()
-        .put("os", "Android").put("release", Build.VERSION.RELEASE).put("sdk", Build.VERSION.SDK_INT)
-        .put("manufacturer", Build.MANUFACTURER).put("model", Build.MODEL)
-        .put("abi", JSONArray(Build.SUPPORTED_ABIS.toList()))
+    private fun device(ctx: Context): JSONObject {
+        val o = JSONObject()
+            .put("os", "Android").put("release", Build.VERSION.RELEASE).put("sdk", Build.VERSION.SDK_INT)
+            .put("security_patch", Build.VERSION.SECURITY_PATCH).put("incremental", Build.VERSION.INCREMENTAL)
+            .put("manufacturer", Build.MANUFACTURER).put("brand", Build.BRAND).put("model", Build.MODEL)
+            .put("device", Build.DEVICE).put("product", Build.PRODUCT).put("hardware", Build.HARDWARE).put("board", Build.BOARD)
+            .put("abi", JSONArray(Build.SUPPORTED_ABIS.toList()))
+            .put("kernel", System.getProperty("os.version") ?: "")
+            .put("locale", Locale.getDefault().toString()).put("timezone", TimeZone.getDefault().id)
+        if (Build.VERSION.SDK_INT >= 31) o.put("soc", Build.SOC_MANUFACTURER + " " + Build.SOC_MODEL)
+        runCatching {
+            val am = ctx.getSystemService(android.app.ActivityManager::class.java)
+            val mi = android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
+            o.put("ram_mb", mi.totalMem shr 20).put("ram_free_mb", mi.availMem shr 20).put("low_memory", mi.lowMemory)
+        }
+        runCatching {
+            if (Build.VERSION.SDK_INT >= 26) android.webkit.WebView.getCurrentWebViewPackage()?.let { o.put("webview", it.packageName + " " + it.versionName) }
+        }
+        return o
+    }
+
+    private fun appState(ctx: Context): JSONObject {
+        val o = JSONObject()
+        runCatching {
+            val pm = ctx.getSystemService(android.os.PowerManager::class.java)
+            o.put("battery_optimization_ignored", pm.isIgnoringBatteryOptimizations(ctx.packageName)).put("power_save", pm.isPowerSaveMode)
+        }
+        runCatching { o.put("notifications", ctx.getSystemService(android.app.NotificationManager::class.java).areNotificationsEnabled()) }
+        runCatching { o.put("vpn_permission", android.net.VpnService.prepare(ctx) == null) }
+        runCatching {
+            val rt = Runtime.getRuntime()
+            o.put("heap_mb", (rt.totalMemory() - rt.freeMemory()) shr 20)
+        }
+        runCatching {
+            // статистику туннеля спрашиваем только у работающего туннеля
+            val st = if (Engine.running && TProxyService.TProxyIsRunning()) TProxyService.TProxyGetStats() else null
+            if (st != null && st.size >= 4) o.put("tunnel", JSONObject().put("tx_packets", st[0]).put("tx_bytes", st[1]).put("rx_packets", st[2]).put("rx_bytes", st[3]))
+        }
+        o.put("uptime_s", if (startedAt > 0) (System.currentTimeMillis() - startedAt) / 1000 else 0)
+            .put("worked", JSONObject(Store.worked(ctx)))
+            .put("strategies", JSONArray(Engine.strategies.map { JSONObject().put("id", it.id).put("args", JSONArray(it.args)) }))
+        return o
+    }
+
+    @Volatile var startedAt = 0L
+
+    // ---------- падения приложения ----------
+
+    private fun crashFile(ctx: Context) = File(ctx.filesDir, "crash.txt")
+
+    /** Перехват падений: стек сохраняется и уходит отчётом при следующем запуске. */
+    fun installCrashHandler(ctx: Context) {
+        val app = ctx.applicationContext
+        val prev = Thread.getDefaultUncaughtExceptionHandler()
+        if (prev is CrashHandler) return
+        Thread.setDefaultUncaughtExceptionHandler(CrashHandler(app, prev))
+    }
+
+    private class CrashHandler(val ctx: Context, val prev: Thread.UncaughtExceptionHandler?) : Thread.UncaughtExceptionHandler {
+        override fun uncaughtException(t: Thread, e: Throwable) {
+            runCatching { crashFile(ctx).writeText("поток ${t.name}: " + android.util.Log.getStackTraceString(e).take(6000)) }
+            prev?.uncaughtException(t, e)
+        }
+    }
+
+    /** Если в прошлый раз приложение упало - отправить отчёт о падении. */
+    fun sendPendingCrash(ctx: Context) {
+        val f = crashFile(ctx)
+        if (!f.exists()) return
+        val text = runCatching { f.readText() }.getOrDefault("")
+        f.delete()
+        error("падение приложения: $text")
+        send(ctx, "crash")
+    }
 
     fun build(ctx: Context, trigger: String): JSONObject {
         val st = Engine.strategyById(Store.strategy(ctx))
@@ -103,7 +204,8 @@ object Report {
             .put("time", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US).apply { timeZone = TimeZone.getDefault() }.format(Date()))
             .put("app", JSONObject().put("platform", "android").put("version", BuildConfigVersion.name(ctx))
                 .put("running", Engine.running).put("boot", Store.boot(ctx)))
-            .put("device", device())
+            .put("device", device(ctx))
+            .put("program", appState(ctx))
             .put("network", network(ctx))
             .put("vpn", JSONObject().put("detected", otherVpnBeforeStart).put("note", "на Android обход сам является VPN; detected - был ли другой VPN до включения"))
             .put("strategy", JSONObject().put("current", st?.id ?: "").put("name", st?.name ?: "")

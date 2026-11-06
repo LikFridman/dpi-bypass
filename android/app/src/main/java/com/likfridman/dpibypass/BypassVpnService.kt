@@ -87,6 +87,8 @@ class BypassVpnService : VpnService() {
     }
 
     private fun run(reselect: Boolean) {
+        Report.installCrashHandler(this)
+        Report.startedAt = System.currentTimeMillis()
         Engine.starting = true
         Engine.cancel = false
         // был ли включён другой VPN до нас (для отчёта)

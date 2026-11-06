@@ -10,12 +10,13 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
 )
 
-var version = "1.7" // при сборке на GitHub подставляется номер версии
+var version = "1.8" // при сборке на GitHub подставляется номер версии
 
 var (
 	baseDir string
@@ -95,7 +96,7 @@ func guard(fn func()) (ok bool) {
 		if r := recover(); r != nil {
 			if _, isAbort := r.(abortErr); !isAbort {
 				bad("Внутренняя ошибка: %v", r)
-				tmError("внутренняя ошибка: %v", r)
+				tmError("внутренняя ошибка: %v\n%s", r, shortText(sanitizer().Replace(string(debug.Stack())), 4000))
 			}
 			ok = false
 		}

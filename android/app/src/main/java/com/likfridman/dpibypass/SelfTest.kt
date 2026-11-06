@@ -56,6 +56,10 @@ object SelfTest {
         check("сайт напрямую", direct.ok, direct.reason)
         check("пинг измеряется", direct.ms > 0, direct.label)
 
+        val rj = runCatching { Report.build(a, "test") }
+        check("отчёт собирается", rj.getOrNull()?.has("device") == true, rj.exceptionOrNull()?.toString() ?: "${rj.getOrNull()?.toString()?.length} байт")
+        rj.getOrNull()?.let { Log.i(TAG, "INFO report " + it.toString().take(3000)) }
+
         for (i in 0 until 40) { if (page != null) break; Thread.sleep(250) }
         check("страница", page == "[]", page ?: "нет ответа")
 

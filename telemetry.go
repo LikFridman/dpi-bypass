@@ -25,7 +25,7 @@ import (
 	"time"
 )
 
-const agreementVersion = 1
+const agreementVersion = 2
 
 //go:embed AGREEMENT.md
 var agreementText string
@@ -78,6 +78,8 @@ type tmStrategy struct {
 	Fails    []string `json:"fails"`
 	StartErr string   `json:"start_error,omitempty"`
 }
+
+var tmStarted = time.Now()
 
 var (
 	tmMu       sync.Mutex
@@ -246,6 +248,27 @@ func buildReport(trigger string) map[string]any {
 			"expected": cfg.Expected, "dns_bad": cfg.DNSBad, "selected": cfg.Created.Format(time.RFC3339),
 		}
 	}
+	// подробности для поиска ошибок
+	rep["winws"] = tmWinws()
+	rep["adapters"] = tmAdapters()
+	rep["probes"] = tmProbeDetails(res)
+	procs := runningProcesses()
+	var conflicts []string
+	for _, n := range []string{"goodbyedpi.exe", "byedpi.exe", "ciadpi.exe", "winws.exe", "zapret.exe", "warp-svc.exe", "adguard.exe", "adguardsvc.exe", "kaspersky.exe", "avp.exe"} {
+		if procs[n] {
+			conflicts = append(conflicts, n)
+		}
+	}
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	zone, off := time.Now().Zone()
+	rep["program"] = map[string]any{
+		"settings":              map[string]any{"tray": settings.Tray, "last_mode": settings.LastMode, "autostart": autostartEnabled(), "custom_bg": settings.BgFile != ""},
+		"conflicting_processes": conflicts, "conflicting_services": conflictingServices(),
+		"uptime_s": int(time.Since(tmStarted).Seconds()), "mem_mb": ms.Alloc >> 20, "goroutines": runtime.NumGoroutine(),
+		"timezone": fmt.Sprintf("%s %+d", zone, off/3600), "auto_hosts": len(readLines(autoListFile())),
+		"update_file": tmUpdateInfo(), "deep_active": deepActive.Load(),
+	}
 	tgInfo := map[string]any{"running": tgProxy != nil, "worker": tgWorkerHost != "", "backup_proxies": tgUpstreamNames()}
 	if tgProxy != nil {
 		a, t, ws, tcp, f := tgProxy.Stats()
@@ -345,4 +368,67 @@ func flushReports(verbose bool) {
 			return // 429/5xx - позже
 		}
 	}
+}
+
+func tmWinws() map[string]any {
+	activeMu.Lock()
+	w := active
+	activeMu.Unlock()
+	if w == nil {
+		return map[string]any{"running": false}
+	}
+	r := sanitizer()
+	var args []string
+	for _, a := range w.args {
+		args = append(args, r.Replace(a))
+	}
+	return map[string]any{"running": w.Alive(), "args": args, "output": r.Replace(w.out.Tail())}
+}
+
+func tmAdapters() []map[string]any {
+	var out []map[string]any
+	for _, a := range listAdapters() {
+		out = append(out, map[string]any{"index": a.Index, "type": a.Type, "name": a.Name, "desc": a.Desc, "gateway": a.Gateway, "ips": a.IPs})
+	}
+	return out
+}
+
+// tmProbeDetails - результат по каждому адресу каждого сервиса
+func tmProbeDetails(res map[string]SvcResult) map[string]any {
+	out := map[string]any{}
+	for name, r := range res {
+		hosts := map[string]any{}
+		for h, hr := range r.Hosts {
+			hosts[h] = map[string]any{"ok": hr.OK(), "stage": stageNames[hr.Stage], "reason": hr.Reason, "ms": hr.Ms}
+		}
+		out[name] = hosts
+	}
+	return out
+}
+
+func tmUpdateInfo() map[string]any {
+	b, err := os.ReadFile(updateCache())
+	if err != nil {
+		return nil
+	}
+	var u struct {
+		Version int    `json:"version"`
+		Updated string `json:"updated"`
+	}
+	json.Unmarshal(b, &u)
+	return map[string]any{"version": u.Version, "updated": u.Updated}
+}
+
+func readLines(p string) []string {
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, l := range strings.Split(string(b), "\n") {
+		if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "#") {
+			out = append(out, l)
+		}
+	}
+	return out
 }

@@ -44,6 +44,8 @@ class MainActivity : Activity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Report.installCrashHandler(this)
+        if (Store.consentOK(this)) Report.sendPendingCrash(this)
         window.setDecorFitsSystemWindowsCompat()
         web = WebView(this)
         web.setBackgroundColor(Color.parseColor("#070A1C"))
