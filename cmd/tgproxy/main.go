@@ -25,11 +25,25 @@ func (m *multi) String() string     { return strings.Join(*m, ",") }
 func (m *multi) Set(s string) error { *m = append(*m, s); return nil }
 
 func main() {
+	// Go для linux не знает, где на Android лежат корневые сертификаты - без этого
+	// не проверяется TLS ни у web.telegram.org (WebSocket), ни у списков прокси
+	if os.Getenv("SSL_CERT_DIR") == "" {
+		var dirs []string
+		for _, d := range []string{"/apex/com.android.conscrypt/cacerts", "/system/etc/security/cacerts"} {
+			if st, err := os.Stat(d); err == nil && st.IsDir() {
+				dirs = append(dirs, d)
+			}
+		}
+		if len(dirs) > 0 {
+			os.Setenv("SSL_CERT_DIR", strings.Join(dirs, ":"))
+		}
+	}
 	listen := flag.String("listen", "127.0.0.1:1443", "адрес прокси")
 	secretHex := flag.String("secret", "", "секрет (32 hex)")
 	socks := flag.String("socks", "", "SOCKS5 обхода DPI (byedpi), например 127.0.0.1:1080")
 	worker := flag.String("worker", "", "свой Cloudflare Worker")
 	check := flag.String("check", "", "проверить уже запущенный прокси по этому адресу и выйти")
+	checkWS := flag.Bool("check-ws", false, "проверить маршрут WebSocket к web.telegram.org (через -socks, если задан) и выйти")
 	discover := flag.Bool("discover", false, "найти и проверить публичные MTProto-прокси, вывести лучшие и выйти")
 	want := flag.Int("want", 3, "сколько лучших прокси вывести (-discover)")
 	var ups, srcs multi
@@ -38,6 +52,25 @@ func main() {
 	flag.Parse()
 	setupResolver()
 
+	if *checkWS {
+		px := &tg.TGProxy{Secret: make([]byte, 16)}
+		r := px.BaseRoutes()[0]
+		if *socks != "" {
+			r = px.WSSocksRoute("WebSocket через обход", *socks)
+		}
+		px.Routes = func() []tg.TGRoute { return []tg.TGRoute{r} }
+		if err := px.Listen("127.0.0.1:0"); err != nil {
+			fmt.Printf("CHECK FAIL %v\n", err)
+			os.Exit(1)
+		}
+		d, err := tg.CheckTimeout(px.Addr(), px.Secret, 2, 15*time.Second)
+		if err != nil {
+			fmt.Printf("CHECK FAIL %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("CHECK OK %d\n", d.Milliseconds())
+		return
+	}
 	if *discover {
 		runDiscover(srcs, *socks, *want)
 		return

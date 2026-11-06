@@ -43,6 +43,15 @@ object SelfTest {
         val p = Engine.startProxy(a, Engine.strategies.first(), Engine.TEST_PORT)
         val r = Engine.probe("www.google.com", Engine.TEST_PORT)
         check("сайт через byedpi", r.ok, r.reason)
+        for (via in listOf<Int?>(null, Engine.TEST_PORT)) {
+            val cmd = mutableListOf(TgProxy.binary(a).absolutePath, "-check-ws")
+            if (via != null) cmd += listOf("-socks", "127.0.0.1:$via")
+            val out = runCatching {
+                val pr = ProcessBuilder(cmd).redirectErrorStream(true).start()
+                pr.inputStream.bufferedReader().readText().trim().lines().lastOrNull() ?: ""
+            }.getOrElse { it.toString() }
+            check("Telegram WebSocket ${if (via == null) "напрямую" else "через byedpi"}", out.startsWith("CHECK OK"), out)
+        }
         TgProxy.start(a, Engine.TEST_PORT)
         for (i in 0 until 20) { if (TgProxy.ready) break; Thread.sleep(250) }
         check("прокси Telegram запустился", TgProxy.ready, TgProxy.lastError)
