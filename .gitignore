@@ -3,3 +3,5 @@ out/
 *.syso
 uitest.txt
 selftest.txt
+docs/
+android-selftest.txt
