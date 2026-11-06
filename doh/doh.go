@@ -36,7 +36,9 @@ type Dial func(ctx context.Context, network, addr string) (net.Conn, error)
 
 // Resolver - клиент DoH с кешем
 type Resolver struct {
-	clients []*http.Client // [напрямую, через запасной путь]
+	clients   []*http.Client // [напрямую, через запасной путь]
+	endpoints []string
+	primary   bool // первый сервер выбран пользователем: к запасным - только если он молчит
 
 	mu    sync.Mutex
 	cache map[string]cacheEntry
@@ -54,15 +56,21 @@ type cacheEntry struct {
 	exp time.Time
 }
 
-// New - резолвер; dial - основной путь (nil - напрямую), fallback - запасной (например, через byedpi), может быть nil
-func New(dial, fallback Dial) *Resolver {
-	r := &Resolver{cache: map[string]cacheEntry{}}
+// New - резолвер (серверы из Endpoints); dial - основной путь (nil - напрямую), fallback - запасной
+// (например, через byedpi), может быть nil
+func New(dial, fallback Dial) *Resolver { return newResolver(Endpoints, dial, fallback, nil) }
+
+func newResolver(endpoints []string, dial, fallback Dial, boot map[string][]string) *Resolver {
+	r := &Resolver{cache: map[string]cacheEntry{}, endpoints: append([]string{}, endpoints...)}
 	for _, d := range []Dial{dial, fallback} {
 		if d == nil && len(r.clients) > 0 {
 			continue
 		}
 		if d == nil {
 			d = (&net.Dialer{Timeout: 5 * time.Second}).DialContext
+		}
+		if len(boot) > 0 {
+			d = bootDial(d, boot)
 		}
 		tr := &http.Transport{
 			DialContext:         d,
@@ -144,22 +152,30 @@ func (r *Resolver) race(ctx context.Context, cl *http.Client, q []byte) ([]byte,
 	}
 	r.mu.Lock()
 	start := r.good
+	if r.primary {
+		start = 0 // выбранный пользователем сервер - всегда первым
+	}
 	r.mu.Unlock()
-	ch := make(chan res, len(Endpoints))
+	eps := r.endpoints
+	ch := make(chan res, len(eps))
 	launched := 0
 	launch := func() {
-		i := (start + launched) % len(Endpoints)
+		i := (start + launched) % len(eps)
 		launched++
 		go func() {
-			b, err := post(ctx, cl, Endpoints[i], q)
+			b, err := post(ctx, cl, eps[i], q)
 			ch <- res{i, b, err}
 		}()
 	}
 	launch()
 	var errs []string
-	tick := time.NewTicker(700 * time.Millisecond)
+	step := 700 * time.Millisecond
+	if r.primary {
+		step = 2500 * time.Millisecond
+	}
+	tick := time.NewTicker(step)
 	defer tick.Stop()
-	for done := 0; done < len(Endpoints); {
+	for done := 0; done < len(eps); {
 		select {
 		case x := <-ch:
 			done++
@@ -170,13 +186,13 @@ func (r *Resolver) race(ctx context.Context, cl *http.Client, q []byte) ([]byte,
 				return x.b, nil
 			}
 			errs = append(errs, x.err.Error())
-			if launched < len(Endpoints) {
+			if launched < len(eps) {
 				launch()
 			} else if done >= launched {
 				return nil, fmt.Errorf("DoH: %s", strings.Join(errs, "; "))
 			}
 		case <-tick.C:
-			if launched < len(Endpoints) {
+			if launched < len(eps) {
 				launch()
 			}
 		case <-ctx.Done():

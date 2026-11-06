@@ -35,6 +35,27 @@ object Updater {
         return ""
     }
 
+    private val configUrls = listOf(
+        "https://raw.githubusercontent.com/LikFridman/dpi-bypass/main/update/update.json",
+        "https://cdn.jsdelivr.net/gh/LikFridman/dpi-bypass@main/update/update.json",
+    )
+
+    /** Настройки с GitHub (update.json): адрес отчётов, списки прокси Telegram, серверы DNS */
+    fun refreshConfig(ctx: Context) {
+        for (u in configUrls) {
+            runCatching {
+                val c = URL(u).openConnection() as HttpURLConnection
+                c.connectTimeout = 6000; c.readTimeout = 6000
+                val j = org.json.JSONObject(c.inputStream.bufferedReader().readText())
+                c.disconnect()
+                j.optString("report_url").trimEnd('/').takeIf { it.startsWith("https://") }?.let { Store.setReportUrl(ctx, it) }
+                j.optJSONArray("tg_proxy_sources")?.let { a -> Store.setTgSources(ctx, (0 until a.length()).map { a.getString(it) }) }
+                j.optJSONArray("dns_providers")?.takeIf { it.length() > 0 }?.let { Store.setDnsProviders(ctx, it.toString()) }
+                return
+            }
+        }
+    }
+
     /** a > b для версий вида 2.3.1 */
     fun newer(a: String, b: String): Boolean {
         val x = a.split(".").map { it.toIntOrNull() ?: 0 }

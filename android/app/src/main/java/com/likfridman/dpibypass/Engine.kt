@@ -121,6 +121,24 @@ object Engine {
     /** Ключ текущей сети: мобильный оператор (cell:25002) или провайдер Wi-Fi/кабеля (asn:AS12389) */
     @Volatile var netKey = ""
     @Volatile var netTitle = ""
+    @Volatile var netAsn = ""
+
+    /** Стратегии, которые чаще всего работают у этого провайдера по отчётам других пользователей */
+    fun crowdPreset(ctx: Context): List<String> {
+        val asn = netAsn
+        val base = Store.reportUrl(ctx)
+        if (asn.isEmpty() || !base.startsWith("https://")) return emptyList()
+        return runCatching {
+            val c = java.net.URL("$base/presets?platform=android&asn=$asn").openConnection() as java.net.HttpURLConnection
+            c.connectTimeout = 4000; c.readTimeout = 4000
+            val j = JSONObject(c.inputStream.bufferedReader().readText())
+            c.disconnect()
+            val a = j.optJSONArray("strategies") ?: JSONArray()
+            val ids = (0 until a.length()).map { a.getJSONObject(it).optString("id") }.filter { strategyById(it) != null }
+            if (ids.isNotEmpty()) log("У других пользователей $asn чаще всего работают: ${ids.joinToString()} (по ${j.optInt("reports")} отчётам) - пробую их первыми")
+            ids
+        }.getOrDefault(emptyList())
+    }
 
     /** Определить сеть под VPN (наш туннель не учитывается). Вызывать не из главного потока. */
     fun networkKey(ctx: Context): Pair<String, String> = runCatching {
@@ -139,11 +157,18 @@ object Engine {
                 c.disconnect()
                 val org = j.optString("org")
                 val asn = org.substringBefore(" ")
+                if (asn.startsWith("AS")) netAsn = asn
                 if (asn.startsWith("AS")) ("asn:$asn" to "Wi-Fi · ${org.substringAfter(" ", asn)}") else ("" to "Wi-Fi")
             }
             cell != null -> {
                 val tm = ctx.getSystemService(android.telephony.TelephonyManager::class.java)
                 val op = tm.networkOperator ?: ""
+                runCatching {
+                    val c = cell.first.openConnection(java.net.URL("https://ipinfo.io/json")) as java.net.HttpURLConnection
+                    c.connectTimeout = 4000; c.readTimeout = 4000
+                    netAsn = JSONObject(c.inputStream.bufferedReader().readText()).optString("org").substringBefore(" ").takeIf { it.startsWith("AS") } ?: ""
+                    c.disconnect()
+                }
                 if (op.isNotEmpty()) ("cell:$op" to "мобильная сеть · ${tm.networkOperatorName}") else ("" to "мобильная сеть")
             }
             else -> "" to ""
@@ -151,6 +176,7 @@ object Engine {
     }.getOrDefault("" to "")
     /** Проверки через зашифрованный DNS - как трафик при включённом обходе (настройка Encrypted DNS) */
     @Volatile var useDoH = true
+    @Volatile var dnsArgsCache: List<String> = emptyList()
     @Volatile var progCur = 0
     @Volatile var progTotal = 0
     @Volatile var pinging = false
@@ -229,7 +255,7 @@ object Engine {
             if (port != null) cmd += listOf("-socks", "127.0.0.1:$port")
             if (light) cmd += "-light"
             if (quick) cmd += "-quick"
-            if (useDoH) cmd += "-doh"
+            if (useDoH) { cmd += "-doh"; cmd += dnsArgsCache }
             val p = ProcessBuilder(cmd).redirectErrorStream(true).start()
             // сторож: зависшую проверку - убить через 60 с. Прерывание сторожа (проверка закончилась раньше)
             // бросает InterruptedException - без перехвата оно роняло всё приложение (краш после Ping all / Test)
@@ -389,7 +415,10 @@ object Engine {
 
         // 2) быстрый прогон
         val light = LinkedHashMap<String, Map<String, Probe>>()
+        // что работает у других пользователей этого провайдера (сервер отчётов) - первыми
+        val crowd = crowdPreset(ctx)
         val order = orderedStrategies(ctx).filter { !it.id.startsWith("g") }
+            .sortedBy { s -> crowd.indexOf(s.id).let { if (it < 0) Int.MAX_VALUE else it } }
         progTotal = order.size
         for ((i, s) in order.withIndex()) {
             if (cancel) break
@@ -529,6 +558,51 @@ object Engine {
         return pl
     }
 
+    // ---------- зашифрованный DNS ----------
+
+    private const val DNS_BUILTIN = "[{\"id\": \"cloudflare\", \"name\": \"Cloudflare\", \"note\": \"быстрый, без фильтрации\", \"url\": \"https://cloudflare-dns.com/dns-query\", \"ips\": [\"1.1.1.1\", \"1.0.0.1\"]}, {\"id\": \"google\", \"name\": \"Google\", \"note\": \"надёжный, без фильтрации\", \"url\": \"https://dns.google/dns-query\", \"ips\": [\"8.8.8.8\", \"8.8.4.4\"]}, {\"id\": \"quad9\", \"name\": \"Quad9\", \"note\": \"блокирует вредоносные сайты\", \"url\": \"https://dns.quad9.net/dns-query\", \"ips\": [\"9.9.9.9\", \"149.112.112.112\"]}, {\"id\": \"adguard\", \"name\": \"AdGuard\", \"note\": \"блокирует рекламу и трекеры\", \"url\": \"https://dns.adguard-dns.com/dns-query\", \"ips\": [\"94.140.14.14\", \"94.140.15.15\"]}, {\"id\": \"adguard-family\", \"name\": \"AdGuard Family\", \"note\": \"реклама + сайты для взрослых, безопасный поиск\", \"url\": \"https://family.adguard-dns.com/dns-query\", \"ips\": [\"94.140.14.15\", \"94.140.15.16\"]}, {\"id\": \"cloudflare-family\", \"name\": \"Cloudflare Family\", \"note\": \"без вредоносных и взрослых сайтов\", \"url\": \"https://family.cloudflare-dns.com/dns-query\", \"ips\": [\"1.1.1.3\", \"1.0.0.3\"]}, {\"id\": \"mullvad\", \"name\": \"Mullvad\", \"note\": \"без логов, без фильтрации\", \"url\": \"https://dns.mullvad.net/dns-query\", \"ips\": [\"194.242.2.2\"]}, {\"id\": \"comss\", \"name\": \"Comss.one\", \"note\": \"РФ: открывает часть сервисов, недоступных из России (ИИ, игры)\", \"url\": \"https://dns.comss.one/dns-query\", \"ips\": [\"195.133.25.16\"]}]"
+
+    /** Серверы DoH: из update.json (обновляются без переустановки) или встроенные */
+    fun dnsProviders(ctx: Context): JSONArray =
+        runCatching { JSONArray(Store.dnsProviders(ctx)).takeIf { it.length() > 0 } }.getOrNull() ?: JSONArray(DNS_BUILTIN)
+
+    /** Выбранный сервер (null - Auto или свой адрес) */
+    fun dnsSelected(ctx: Context): JSONObject? {
+        val id = Store.dnsProvider(ctx)
+        val l = dnsProviders(ctx)
+        return (0 until l.length()).map { l.getJSONObject(it) }.firstOrNull { it.optString("id") == id }
+    }
+
+    /** Аргументы helper для DNS проверок (как у маршрутизатора) */
+    fun dnsArgs(ctx: Context): List<String> {
+        val sel = dnsSelected(ctx)
+        val ips = sel?.optJSONArray("ips")?.let { a -> (0 until a.length()).joinToString(",") { a.getString(it) } } ?: ""
+        return when {
+            sel != null -> listOf("-dns", sel.optString("id"), "-dns-url", sel.optString("url"), "-dns-ips", ips)
+            Store.dnsProvider(ctx) == "custom" -> listOf("-dns", "custom", "-dns-custom", Store.dnsCustom(ctx))
+            else -> listOf("-dns", "auto")
+        }
+    }
+
+    /** Задержка до всех серверов DoH (через helper), JSON-массив [{id, ms, error}] */
+    fun dnsPing(ctx: Context): JSONArray {
+        val bin = File(nativeDir, "libtgproxy.so")
+        val f = File.createTempFile("dns", ".json").apply { writeText(dnsProviders(ctx).toString()) }
+        return try {
+            val cmd = mutableListOf(bin.absolutePath, "-dns-ping", "-dns-list", f.absolutePath)
+            if (Store.dnsCustom(ctx).startsWith("https://")) cmd += listOf("-dns-custom", Store.dnsCustom(ctx))
+            val p = ProcessBuilder(cmd).redirectErrorStream(true).start()
+            val out = p.inputStream.bufferedReader().readText()
+            runCatching { p.waitFor(5, TimeUnit.SECONDS) }
+            val line = out.lines().lastOrNull { it.startsWith("DNSPING ") } ?: return JSONArray()
+            JSONArray(line.removePrefix("DNSPING "))
+        } catch (e: Exception) {
+            dbg("проверка DNS: ${e.message}"); JSONArray()
+        } finally {
+            f.delete()
+        }
+    }
+
     /** Стратегия «без обхода» для сервиса (выбор None) */
     const val NONE = "none"
 
@@ -662,6 +736,7 @@ object Engine {
         o.put("needConsent", !Store.consentOK(ctx))
         o.put("blockQuic", Store.blockQuic(ctx))
         o.put("doh", Store.doh(ctx))
+        o.put("dnsInfo", JSONObject().put("provider", Store.dnsProvider(ctx)).put("custom", Store.dnsCustom(ctx)).put("providers", dnsProviders(ctx)))
         o.put("network", netTitle)
         o.put("dns", runCatching { JSONObject(Pool.routerStats).optJSONObject("doh") }.getOrNull() ?: JSONObject())
         o.put("discordUdp", Store.discordUdp(ctx))

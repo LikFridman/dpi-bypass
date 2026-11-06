@@ -55,6 +55,16 @@ object Store {
     /** Какие сервисы нужны пользователю (null - ещё не выбирал) */
     fun chosenSites(ctx: Context): Set<String>? = p(ctx).getStringSet("chosen_sites", null)
     fun setChosenSites(ctx: Context, v: Set<String>) = p(ctx).edit().putStringSet("chosen_sites", v).apply()
+    fun dnsProvider(ctx: Context) = p(ctx).getString("dns_provider", "auto") ?: "auto"
+    fun dnsCustom(ctx: Context) = p(ctx).getString("dns_custom", "") ?: ""
+    fun setDns(ctx: Context, id: String, custom: String?) {
+        val e = p(ctx).edit().putString("dns_provider", id)
+        if (custom != null) e.putString("dns_custom", custom)
+        e.apply()
+    }
+    /** Список серверов DNS из update.json (пусто - встроенный) */
+    fun dnsProviders(ctx: Context) = p(ctx).getString("dns_providers", "") ?: ""
+    fun setDnsProviders(ctx: Context, v: String) = p(ctx).edit().putString("dns_providers", v).apply()
     fun doh(ctx: Context) = p(ctx).getBoolean("doh", true)
     fun setDoh(ctx: Context, v: Boolean) = p(ctx).edit().putBoolean("doh", v).apply()
     fun discordUdp(ctx: Context) = p(ctx).getBoolean("discordUdp", true)

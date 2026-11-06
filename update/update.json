@@ -27,5 +27,86 @@
     "Roblox    | www.roblox.com | roblox.com rbxcdn.com rbx.com robloxlabs.com robloxcdn.com rbxinfra.com rbxtrk.com"
   ],
   "presets": {},
-  "_presets_help": "Пресеты провайдеров: \"AS12389\": [\"s1\", \"u1\"] - какие стратегии пробовать первыми. Заполняется по результатам из задач (issues) с меткой «результат»."
+  "_presets_help": "Пресеты провайдеров: \"AS12389\": [\"s1\", \"u1\"] - какие стратегии пробовать первыми. Заполняется по результатам из задач (issues) с меткой «результат».",
+  "dns_providers": [
+    {
+      "id": "cloudflare",
+      "name": "Cloudflare",
+      "note": "быстрый, без фильтрации",
+      "url": "https://cloudflare-dns.com/dns-query",
+      "ips": [
+        "1.1.1.1",
+        "1.0.0.1"
+      ]
+    },
+    {
+      "id": "google",
+      "name": "Google",
+      "note": "надёжный, без фильтрации",
+      "url": "https://dns.google/dns-query",
+      "ips": [
+        "8.8.8.8",
+        "8.8.4.4"
+      ]
+    },
+    {
+      "id": "quad9",
+      "name": "Quad9",
+      "note": "блокирует вредоносные сайты",
+      "url": "https://dns.quad9.net/dns-query",
+      "ips": [
+        "9.9.9.9",
+        "149.112.112.112"
+      ]
+    },
+    {
+      "id": "adguard",
+      "name": "AdGuard",
+      "note": "блокирует рекламу и трекеры",
+      "url": "https://dns.adguard-dns.com/dns-query",
+      "ips": [
+        "94.140.14.14",
+        "94.140.15.15"
+      ]
+    },
+    {
+      "id": "adguard-family",
+      "name": "AdGuard Family",
+      "note": "реклама + сайты для взрослых, безопасный поиск",
+      "url": "https://family.adguard-dns.com/dns-query",
+      "ips": [
+        "94.140.14.15",
+        "94.140.15.16"
+      ]
+    },
+    {
+      "id": "cloudflare-family",
+      "name": "Cloudflare Family",
+      "note": "без вредоносных и взрослых сайтов",
+      "url": "https://family.cloudflare-dns.com/dns-query",
+      "ips": [
+        "1.1.1.3",
+        "1.0.0.3"
+      ]
+    },
+    {
+      "id": "mullvad",
+      "name": "Mullvad",
+      "note": "без логов, без фильтрации",
+      "url": "https://dns.mullvad.net/dns-query",
+      "ips": [
+        "194.242.2.2"
+      ]
+    },
+    {
+      "id": "comss",
+      "name": "Comss.one",
+      "note": "РФ: открывает часть сервисов, недоступных из России (ИИ, игры)",
+      "url": "https://dns.comss.one/dns-query",
+      "ips": [
+        "195.133.25.16"
+      ]
+    }
+  ],
+  "_dns_providers_help": "Серверы для вкладки DNS (ПК и Android). Добавить сервер - новая строка: id, name, note, url (https://.../dns-query), ips (адреса без обычного DNS). Появится у всех без переустановки."
 }

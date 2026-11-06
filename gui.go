@@ -125,6 +125,10 @@ const (
 	idSite
 	idOpen
 	idExit
+	idPingAll
+	idDoH
+	idChoose
+	idLogTray
 )
 
 type wndClassEx struct {
@@ -348,11 +352,46 @@ func trayMenu() {
 		pAppendMenuW.Call(m, flags, uintptr(id), uintptr(unsafe.Pointer(u16(text))))
 	}
 	running := engRunning.Load()
+	if webUIActive {
+		// строка состояния (неактивная)
+		st := "Обход выключен"
+		if running {
+			st = "Обход работает"
+			if mode := runMode; mode == modeWithVPN {
+				st += " · с VPN"
+			} else {
+				st += " · без VPN"
+			}
+			if r, _ := lastPing(); r != nil {
+				ok := 0
+				for _, x := range r {
+					if x.OK {
+						ok++
+					}
+				}
+				st += fmt.Sprintf(" · %d/%d ok", ok, len(r))
+			}
+		}
+		add(0, st, false)
+		pAppendMenuW.Call(m, 0x800, 0, 0)
+	}
 	add(idOpen, "Открыть окно", true)
 	pAppendMenuW.Call(m, 0x800, 0, 0)
-	add(idOn, "Включить обход (без VPN)", true)
-	add(idVPN, "Включить обход вместе с VPN", true)
+	add(idOn, "Включить обход (без VPN)", !running || runMode != modeNoVPN)
+	add(idVPN, "Включить обход вместе с VPN", !running || runMode != modeWithVPN)
 	add(idOff, "Выключить обход", running)
+	if webUIActive {
+		pAppendMenuW.Call(m, 0x800, 0, 0)
+		add(idPingAll, "Ping all - проверить сервисы", true)
+		add(idReselect, "Re-tune - подобрать стратегии заново", true)
+		add(idChoose, "Выбрать сервисы…", true)
+		dohText := "Encrypted DNS: выключен (включить)"
+		if !settings.NoDoH {
+			dohText = "Encrypted DNS: включён (выключить)"
+		}
+		add(idDoH, dohText, true)
+		add(idLogTray, "Журнал", true)
+	}
 	pAppendMenuW.Call(m, 0x800, 0, 0)
 	add(idExit, "Выход", true)
 	var pt struct{ X, Y int32 }

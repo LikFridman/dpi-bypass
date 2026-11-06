@@ -180,12 +180,57 @@ func ispPreset(asn string) []string {
 			}
 		}
 	}
-	for _, id := range remotePresets[asn] {
+	// что работает у других пользователей этого провайдера (сервер отчётов), затем пресеты из update.json
+	for _, id := range append(crowdPreset(asn), remotePresets[asn]...) {
 		if _, ok := strategyByID(id); ok && !seen[id] {
 			seen[id] = true
 			ids = append(ids, id)
 		}
 	}
+	return ids
+}
+
+var (
+	crowdMu    sync.Mutex
+	crowdCache = map[string][]string{}
+	crowdAt    = map[string]time.Time{}
+)
+
+// crowdPreset - стратегии, которые чаще всего работают у этого провайдера по отчётам других
+// пользователей (сервер отчётов, /presets). Ответ кешируется на час; ошибка - пустой список.
+func crowdPreset(asn string) []string {
+	crowdMu.Lock()
+	if time.Since(crowdAt[asn]) < time.Hour {
+		ids := crowdCache[asn]
+		crowdMu.Unlock()
+		return ids
+	}
+	crowdMu.Unlock()
+	var ids []string
+	if u := reportURL(); u != "" {
+		cl := &http.Client{Timeout: 4 * time.Second}
+		if resp, err := cl.Get(u + "/presets?platform=windows&asn=" + url.QueryEscape(asn)); err == nil {
+			var d struct {
+				Reports    int `json:"reports"`
+				Strategies []struct {
+					ID string `json:"id"`
+					N  int    `json:"n"`
+				} `json:"strategies"`
+			}
+			if resp.StatusCode == 200 && json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&d) == nil {
+				for _, x := range d.Strategies {
+					ids = append(ids, x.ID)
+				}
+				if len(ids) > 0 {
+					info("У других пользователей %s чаще всего работают: %s (по %d отчётам) - пробую их первыми", asn, strings.Join(ids, ", "), d.Reports)
+				}
+			}
+			resp.Body.Close()
+		}
+	}
+	crowdMu.Lock()
+	crowdCache[asn], crowdAt[asn] = ids, time.Now()
+	crowdMu.Unlock()
 	return ids
 }
 

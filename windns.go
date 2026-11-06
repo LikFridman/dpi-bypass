@@ -119,7 +119,7 @@ func dohStart() {
 		return
 	}
 	restoreDNS() // осталось от прошлого запуска
-	r := doh.New(nil, nil)
+	r := doh.NewFor(settings.DNS, settings.DNSCustom, nil, nil)
 	// DoH вообще доступен? (иначе не трогаем систему)
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	_, err := r.LookupIP(ctx, "www.google.com")
@@ -192,15 +192,36 @@ func dohStop() {
 	dohClosers, dohActive = nil, false
 }
 
-// dohStats - для отчёта
+// dohStats - для отчёта и вкладки DNS
 func dohStats() map[string]any {
-	dohMu.Lock()
+	prov := settings.DNS
+	if prov == "" {
+		prov = "auto"
+	}
+	m := map[string]any{"enabled": !settings.NoDoH, "provider": prov, "custom": settings.DNSCustom, "providers": doh.Providers}
+	// не ждём, пока dohStart проверяет серверы (до 8 с) - окно не должно подвисать
+	if !dohMu.TryLock() {
+		m["active"] = false
+		return m
+	}
 	defer dohMu.Unlock()
-	m := map[string]any{"enabled": !settings.NoDoH, "active": dohActive}
+	m["active"] = dohActive
 	if dohRes != nil {
+		m["current"] = dohRes.Current()
 		dohRes.Stats.Lock()
 		m["queries"], m["cache_hits"], m["failures"], m["last_error"] = dohRes.Stats.Queries, dohRes.Stats.CacheHits, dohRes.Stats.Failures, dohRes.Stats.LastError
 		dohRes.Stats.Unlock()
 	}
 	return m
+}
+
+// dohRestart - применить другой сервер DoH, если зашифрованный DNS сейчас работает
+func dohRestart() {
+	dohMu.Lock()
+	act := dohActive
+	dohMu.Unlock()
+	if act {
+		dohStop()
+		dohStart()
+	}
 }

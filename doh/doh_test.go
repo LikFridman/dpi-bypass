@@ -127,3 +127,36 @@ func TestServfailWhenDown(t *testing.T) {
 		t.Fatalf("ошибка: %q", r.Stats.LastError)
 	}
 }
+
+func TestProvidersAndBoot(t *testing.T) {
+	var hits int64
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&hits, 1)
+		q, _ := io.ReadAll(r.Body)
+		w.Write(answer(q))
+	}))
+	defer srv.Close()
+	testRoots = srv.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs
+	defer func() { testRoots = nil }()
+	_, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
+	// имя example.com подключается по IP из boot (обычный DNS не нужен); сертификат теста - на example.com
+	r := newResolver([]string{"https://example.com:" + port + "/dns-query"}, nil, nil, map[string][]string{"example.com": {"127.0.0.1"}})
+	m, err := r.Exchange(context.Background(), BuildQuery("boot.test", 1))
+	if err != nil || len(ParseIPs(m)) != 1 {
+		t.Fatalf("boot: %v", err)
+	}
+	if r.Current() == "" {
+		t.Fatal("Current пуст")
+	}
+	for _, p := range Providers {
+		if !strings.HasPrefix(p.URL, "https://") || len(p.IPs) == 0 {
+			t.Errorf("сервер %s: нет адреса или IP", p.ID)
+		}
+	}
+	if x := NewFor("adguard", "", nil, nil); len(x.endpoints) != 4 || !strings.Contains(x.endpoints[0], "adguard") || !x.primary {
+		t.Errorf("NewFor adguard: %v", x.endpoints)
+	}
+	if x := NewFor("auto", "", nil, nil); len(x.endpoints) != 3 || x.primary {
+		t.Errorf("NewFor auto: %v", x.endpoints)
+	}
+}

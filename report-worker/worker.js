@@ -196,6 +196,35 @@ async function handleSummary(url, env) {
   return json({ days, total: tot[0] || {}, platforms: plat, versions: ver, isps, strategies: strats, triggers: trig, errors: errs, bad_sites: badSites });
 }
 
+// Публично (без ключа): какие стратегии чаще всего работают у провайдера. Только номера стратегий и
+// счётчики по отчётам, где открылись все выбранные сервисы - ничего личного. Программа пробует их первыми.
+const presetCache = new Map();
+async function handlePresets(url, env) {
+  const asn = String(url.searchParams.get("asn") || "").toUpperCase();
+  const platform = url.searchParams.get("platform") === "android" ? "android" : "windows";
+  if (!/^AS\d{1,10}$/.test(asn)) return json({ error: "asn" }, 400);
+  const key = platform + ":" + asn;
+  const hit = presetCache.get(key);
+  if (hit && Date.now() - hit.at < 10 * 60e3) return json(hit.data);
+  await ensureSchema(env.DB);
+  const { results } = await env.DB.prepare(
+    `SELECT strat, sites_ok, sites_total FROM reports
+     WHERE platform = ? AND (nasn = ? OR (COALESCE(nasn,'') = '' AND 'AS' || asn = ?)) AND ts > ? AND strat IS NOT NULL AND strat != ''
+     ORDER BY ts DESC LIMIT 2000`
+  ).bind(platform, asn, asn, Date.now() - 30 * 86400e3).all();
+  const score = {};
+  let reports = 0;
+  for (const r of results) {
+    if (!r.sites_total || r.sites_ok < r.sites_total) continue; // только где всё открылось
+    reports++;
+    for (const id of String(r.strat).split("+")) if (/^[a-zA-Z0-9_-]{1,24}$/.test(id) && id !== "none") score[id] = (score[id] || 0) + 1;
+  }
+  const strategies = Object.entries(score).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([id, n]) => ({ id, n }));
+  const data = { asn, platform, reports, strategies };
+  presetCache.set(key, { at: Date.now(), data });
+  return json(data);
+}
+
 async function handleOne(id, env) {
   await ensureSchema(env.DB);
   const row = await env.DB.prepare("SELECT body FROM reports WHERE id = ?").bind(id).first();
@@ -280,6 +309,7 @@ export default {
     const url = new URL(req.url);
     try {
       if (req.method === "POST" && url.pathname === "/report") return await handleReport(req, env);
+      if (req.method === "GET" && url.pathname === "/presets") return await handlePresets(url, env);
       if (req.method === "GET" && url.pathname === "/") {
         if (!authorized(url, env)) return new Response("dpi-bypass reports: ok");
         return new Response(PAGE, { headers: { "content-type": "text/html; charset=utf-8" } });

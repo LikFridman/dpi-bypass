@@ -34,7 +34,9 @@ type Settings struct {
 	Consent   int    `json:"consent"`
 	ConsentAt string `json:"consent_at,omitempty"`
 	// зашифрованный DNS выключен вручную (по умолчанию включён)
-	NoDoH bool `json:"no_doh,omitempty"`
+	NoDoH     bool   `json:"no_doh,omitempty"`
+	DNS       string `json:"dns,omitempty"`        // сервер DoH: auto | cloudflare | google | ... | custom
+	DNSCustom string `json:"dns_custom,omitempty"` // свой адрес DoH
 	// какие сервисы нужны (подбор и проверки - только по ним); SitesSet=false - ещё не выбирали (все)
 	Sites    []string `json:"sites,omitempty"`
 	SitesSet bool     `json:"sites_set,omitempty"`

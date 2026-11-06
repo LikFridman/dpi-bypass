@@ -89,6 +89,7 @@ class BypassVpnService : VpnService() {
         Report.installCrashHandler(this)
         Engine.nativeDir = applicationInfo.nativeLibraryDir
         Engine.useDoH = Store.doh(this)
+        Engine.dnsArgsCache = Engine.dnsArgs(this)
         Report.startedAt = System.currentTimeMillis()
         Engine.starting = true
         Engine.cancel = false
@@ -125,6 +126,7 @@ class BypassVpnService : VpnService() {
                 return
             }
             Engine.running = true
+            ToggleTile.update(this)
             Engine.starting = false
             Engine.log("Обход работает: ${Pool.describe()}" + (if (Pool.routerReady) "" else " (без маршрутизатора)"))
             TgProxy.start(this, Engine.PORT)
@@ -269,6 +271,7 @@ class BypassVpnService : VpnService() {
         Engine.cancel = true
         shutdownTunnel()
         Engine.running = false
+        ToggleTile.update(this)
         Engine.starting = false
         Engine.results = emptyMap()
         Engine.status = "Bypass off"

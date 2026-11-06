@@ -47,7 +47,10 @@ class MainActivity : Activity() {
         Report.installCrashHandler(this)
         Engine.nativeDir = applicationInfo.nativeLibraryDir
         Engine.useDoH = Store.doh(this)
+        Engine.dnsArgsCache = Engine.dnsArgs(this)
         safeThread {
+            Updater.refreshConfig(this)
+            Engine.dnsArgsCache = Engine.dnsArgs(this)
             val v = Updater.fetch()
             if (v.isNotEmpty() && Updater.newer(v, BuildConfigVersion.name(this))) {
                 Engine.log("Доступна новая версия $v - Settings → Updates")
@@ -306,6 +309,31 @@ class MainActivity : Activity() {
                             toast(if (r == null) "byedpi не запустился" else if (r.ok) "$site: ${r.ms} ms · ${r.detail}" else "$site: ${r.detail}")
                             event(JSONObject().put("t", "stratUpdated").put("site", site))
                         } finally { Engine.busy = false }
+                    }.start()
+                    null
+                }
+                "dnsSet" -> {
+                    val parts = arg.split("|", limit = 2)
+                    val id = parts[0]
+                    val custom = parts.getOrNull(1)?.trim()?.takeIf { it.isNotEmpty() }
+                    if (id == "custom" && custom?.startsWith("https://") != true) { toast("Нужен адрес https://…/dns-query"); return "null" }
+                    Store.setDns(this@MainActivity, id, custom)
+                    Engine.dnsArgsCache = Engine.dnsArgs(this@MainActivity)
+                    val name = Engine.dnsSelected(this@MainActivity)?.optString("name") ?: if (id == "custom") "свой адрес" else "Auto"
+                    Engine.log("Зашифрованный DNS: сервер $name")
+                    toast("DNS: $name")
+                    if (Engine.running) safeThread { Pool.plan?.let { Pool.start(this@MainActivity, it) } }.start()
+                    null
+                }
+                "dnsTest" -> {
+                    safeThread {
+                        val res = Engine.dnsPing(this@MainActivity)
+                        for (i in 0 until res.length()) {
+                            val x = res.getJSONObject(i)
+                            if (x.optString("error").isEmpty()) Engine.log("DNS ${x.optString("id")}: ${x.optInt("ms")} ms")
+                            else Engine.err("DNS ${x.optString("id")}: не отвечает (${x.optString("error")})")
+                        }
+                        event(JSONObject().put("t", "dnsPing").put("res", res))
                     }.start()
                     null
                 }

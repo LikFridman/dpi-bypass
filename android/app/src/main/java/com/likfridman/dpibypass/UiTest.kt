@@ -32,10 +32,19 @@ object UiTest {
         val logStart = Engine.logsSince(0).first
 
         // вкладки
-        for (p in listOf("home", "sites", "tg", "log", "set", "home")) {
+        for (p in listOf("home", "sites", "dns", "tg", "log", "set", "home")) {
             click(".tab[data-p=$p]", "вкладка $p"); Thread.sleep(700)
         }
         alive("переключение вкладок")
+
+        // DNS: проверка серверов и выбор
+        click(".tab[data-p=dns]", "вкладка DNS"); Thread.sleep(600)
+        val dn = js("document.querySelectorAll('#dnsList .dnsr').length")?.toIntOrNull() ?: 0
+        check("список серверов DNS", dn > 3, "серверов $dn")
+        click("#dnsTest", "DNS Test all"); Thread.sleep(16000)
+        js("(function(){const r=document.querySelectorAll('#dnsList .dnsr');r[2]&&r[2].click()})()"); Thread.sleep(4000)
+        js("(function(){const r=document.querySelectorAll('#dnsList .dnsr');r[0]&&r[0].click()})()"); Thread.sleep(4000)
+        alive("DNS")
 
         // выбор сервисов (Sites → Choose → Save)
         click(".tab[data-p=sites]", "вкладка Sites"); Thread.sleep(600)

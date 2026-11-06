@@ -13,11 +13,11 @@ class ToggleTile : TileService() {
     override fun onClick() {
         if (Engine.running || Engine.starting) {
             BypassVpnService.stop(this)
-        } else if (VpnService.prepare(this) == null && Store.consentOK(this)) {
+        } else if (VpnService.prepare(this) == null && Store.consentOK(this) && Store.chosenSites(this) != null) {
             Engine.starting = true
             BypassVpnService.start(this)
         } else {
-            // нужно разрешение на VPN - открываем приложение
+            // нужно разрешение на VPN, согласие или выбор сервисов - открываем приложение
             val i = Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             if (Build.VERSION.SDK_INT >= 34) {
                 startActivityAndCollapse(android.app.PendingIntent.getActivity(this, 0, i, android.app.PendingIntent.FLAG_IMMUTABLE))
@@ -26,13 +26,28 @@ class ToggleTile : TileService() {
                 startActivityAndCollapse(i)
             }
         }
-        qsTile?.let { it.state = if (Engine.running || Engine.starting) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE; it.updateTile() }
+        refresh()
     }
 
     private fun refresh() {
         qsTile?.let {
-            it.state = if (Engine.running || Engine.starting) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+            val on = Engine.running || Engine.starting
+            it.state = if (on) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+            if (Build.VERSION.SDK_INT >= 29) {
+                it.subtitle = when {
+                    Engine.starting && !Engine.running -> "подбор…"
+                    Engine.running -> Engine.results.values.let { r -> if (r.isEmpty()) "on" else "${r.count { p -> p.ok }}/${r.size} ok" }
+                    else -> "off"
+                }
+            }
             it.updateTile()
+        }
+    }
+
+    companion object {
+        /** Обновить плитку (обход включился / выключился) */
+        fun update(ctx: android.content.Context) {
+            runCatching { requestListeningState(ctx, android.content.ComponentName(ctx, ToggleTile::class.java)) }
         }
     }
 }

@@ -23,6 +23,8 @@ import (
 	"time"
 	"unsafe"
 
+	"context"
+	"dpibypass/doh"
 	webview2 "github.com/jchv/go-webview2"
 	"net"
 )
@@ -74,6 +76,7 @@ type uiState struct {
 	Tray        bool        `json:"tray"`
 	SitesSet    bool        `json:"chosenSet"`
 	DoH         bool        `json:"doh"`
+	DNS         any         `json:"dns"`
 	Update      string      `json:"update"`
 	Dir         string      `json:"dir"`
 	Missing     []string    `json:"missing"`
@@ -383,7 +386,7 @@ func loadConfigCached() *Config {
 func buildUIState() uiState {
 	st := uiState{
 		Version: version, Running: engRunning.Load(), Busy: busy.Load(),
-		Mode: settings.LastMode, Autostart: autostartCache.Load(), Tray: settings.Tray, DoH: !settings.NoDoH, SitesSet: settings.SitesSet || uitestMode,
+		Mode: settings.LastMode, Autostart: autostartCache.Load(), Tray: settings.Tray, DoH: !settings.NoDoH, SitesSet: settings.SitesSet || uitestMode, DNS: dohStats(),
 		Dir: baseDir, Missing: missingZapretFiles(), TgLink: tgCurrentLink, TgStats: tgStatusLine(),
 		TgProxies:   tgUpstreamNames(),
 		NeedConsent: !consentOK(),
@@ -729,6 +732,44 @@ func webCall(cmd, arg string) (any, error) {
 				webStartEngine(mode, false)
 			}()
 		}
+	case "dnsSet":
+		p := strings.SplitN(arg, "|", 2)
+		id, custom := p[0], ""
+		if len(p) == 2 {
+			custom = strings.TrimSpace(p[1])
+		}
+		if id == "custom" && !strings.HasPrefix(custom, "https://") {
+			return nil, fmt.Errorf("нужен адрес https://.../dns-query")
+		}
+		if _, ok := doh.ProviderByID(id); !ok && id != "auto" && id != "custom" {
+			return nil, fmt.Errorf("нет такого сервера")
+		}
+		settings.DNS = id
+		if id == "custom" {
+			settings.DNSCustom = custom
+		}
+		saveSettings()
+		name := id
+		if pr, ok := doh.ProviderByID(id); ok {
+			name = pr.Name
+		}
+		info("Зашифрованный DNS: сервер %s", name)
+		uiToast("DNS: " + name)
+		go dohRestart()
+	case "dnsTest":
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			res := doh.PingAll(ctx, settings.DNSCustom, nil)
+			cancel()
+			for _, r := range res {
+				if r.Error == "" {
+					info("DNS %s: %d ms", r.ID, r.Ms)
+				} else {
+					warn("DNS %s: не отвечает (%s)", r.ID, r.Error)
+				}
+			}
+			uiEvent(map[string]any{"t": "dnsPing", "res": res})
+		}()
 	case "doh":
 		settings.NoDoH = arg != "1"
 		saveSettings()
@@ -904,6 +945,27 @@ func webTrayCommand(id int) {
 		webStartEngine(modeWithVPN, false)
 	case idOff:
 		go shutdownAll()
+	case idPingAll:
+		pingAllAsync()
+		uiToast("Ping all…")
+	case idReselect:
+		if engRunning.Load() {
+			mode := runMode
+			go func() {
+				stopEngine()
+				webStartEngine(mode, true)
+			}()
+		} else {
+			webStartEngine(modeNoVPN, true)
+		}
+	case idChoose:
+		showMainWindow()
+		uiEvent(map[string]any{"t": "choose"})
+	case idDoH:
+		webCall("doh", map[bool]string{true: "1", false: "0"}[settings.NoDoH])
+	case idLogTray:
+		showMainWindow()
+		uiEvent(map[string]any{"t": "go", "p": "log"})
 	case idExit:
 		webQuit()
 	}

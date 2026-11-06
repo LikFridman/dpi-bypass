@@ -53,6 +53,12 @@ func main() {
 	light := flag.Bool("light", false, "облегчённая проверка (для перебора стратегий)")
 	quick := flag.Bool("quick", false, "фоновая проверка: только начало страницы")
 	useDoH := flag.Bool("doh", false, "проверки: имена сайтов - через зашифрованный DNS (как при включённом обходе)")
+	dnsID := flag.String("dns", "auto", "сервер зашифрованного DNS (cloudflare, google, adguard, ... или custom)")
+	dnsCustom := flag.String("dns-custom", "", "свой адрес DoH для -dns custom")
+	dnsPing := flag.Bool("dns-ping", false, "проверить задержку до всех серверов DoH, вывести DNSPING <json> и выйти")
+	dnsURL := flag.String("dns-url", "", "адрес выбранного сервера DoH (вместо -dns)")
+	dnsIPs := flag.String("dns-ips", "", "его IP через запятую")
+	dnsList := flag.String("dns-list", "", "файл JSON со списком серверов для -dns-ping")
 	routerCfg := flag.String("router", "", "запустить маршрутизатор SOCKS5 по JSON-настройкам из файла")
 	speedTest := flag.Bool("speed", false, "замерить скорость видео YouTube (через -socks, если задан) и выйти")
 	checkDC := flag.Bool("check-dc", false, "проверить Telegram как приложение: MTProto напрямую к DC2 (через -socks, если задан) и выйти")
@@ -101,6 +107,23 @@ func main() {
 		runDiscover(srcs, *socks, *want)
 		return
 	}
+	if *dnsPing {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		prov := doh.Providers
+		if *dnsList != "" {
+			if b, err := os.ReadFile(*dnsList); err == nil {
+				var l []doh.Provider
+				if json.Unmarshal(b, &l) == nil && len(l) > 0 {
+					prov = l
+				}
+			}
+		}
+		res := doh.PingList(ctx, prov, *dnsCustom, nil)
+		cancel()
+		b, _ := json.Marshal(res)
+		fmt.Println("DNSPING " + string(b))
+		return
+	}
 	if *checkSites != "" {
 		b, err := os.ReadFile(*checkSites)
 		if err != nil {
@@ -118,7 +141,17 @@ func main() {
 		}
 		var mu sync.Mutex
 		if *useDoH {
-			dial = svc.Dial(doh.New(nil, nil).Wrap(doh.Dial(dial)))
+			res := doh.NewFor(*dnsID, *dnsCustom, nil, nil)
+			if strings.HasPrefix(*dnsURL, "https://") {
+				var ips []string
+				for _, x := range strings.Split(*dnsIPs, ",") {
+					if x = strings.TrimSpace(x); x != "" {
+						ips = append(ips, x)
+					}
+				}
+				res = doh.NewProvider(&doh.Provider{ID: *dnsID, URL: *dnsURL, IPs: ips}, nil, nil)
+			}
+			dial = svc.Dial(res.Wrap(doh.Dial(dial)))
 		}
 		svc.RunAll(context.Background(), sites, dial, svc.Options{Light: *light, Quick: *quick}, func(r svc.Result) {
 			j, _ := json.Marshal(r)

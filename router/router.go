@@ -43,6 +43,10 @@ type Config struct {
 	UDPCIDRs     []string `json:"udp_cidrs"`     // и только к этим сетям (пусто - к любым, кроме игровых серверов)
 	TelegramMode string   `json:"telegram_mode"` // auto | ws | direct
 	DoH          bool     `json:"doh"`           // DNS (UDP 53) из туннеля - через зашифрованный DNS
+	DoHProvider  string   `json:"doh_provider"`  // auto | cloudflare | google | ... | custom
+	DoHCustom    string   `json:"doh_custom"`    // свой адрес https://.../dns-query
+	DoHURL       string   `json:"doh_url"`       // адрес выбранного сервера (список серверов обновляется с GitHub)
+	DoHIPs       []string `json:"doh_ips"`       // его IP (без обычного DNS)
 }
 
 // Stats - счётчики для отчётов
@@ -83,7 +87,11 @@ func New(cfg Config) *Router {
 				return tg.SocksDial(cfg.Default, addr)
 			}
 		}
-		r.dns = doh.New(nil, fb)
+		if strings.HasPrefix(cfg.DoHURL, "https://") {
+			r.dns = doh.NewProvider(&doh.Provider{ID: cfg.DoHProvider, URL: cfg.DoHURL, IPs: cfg.DoHIPs}, nil, fb)
+		} else {
+			r.dns = doh.NewFor(cfg.DoHProvider, cfg.DoHCustom, nil, fb)
+		}
 	}
 	r.tgpx = &tg.TGProxy{Secret: make([]byte, 16), Log: func(f string, a ...any) { r.logf(f, a...) }}
 	return r
@@ -94,9 +102,11 @@ func (r *Router) DNSStats() map[string]any {
 	if r.dns == nil {
 		return nil
 	}
+	cur := r.dns.Current()
 	r.dns.Stats.Lock()
 	defer r.dns.Stats.Unlock()
-	return map[string]any{"queries": r.dns.Stats.Queries, "cache_hits": r.dns.Stats.CacheHits, "failures": r.dns.Stats.Failures, "last_error": r.dns.Stats.LastError}
+	return map[string]any{"queries": r.dns.Stats.Queries, "cache_hits": r.dns.Stats.CacheHits, "failures": r.dns.Stats.Failures,
+		"last_error": r.dns.Stats.LastError, "current": cur}
 }
 
 func (r *Router) logf(format string, a ...any) {

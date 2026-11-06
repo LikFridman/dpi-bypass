@@ -7,6 +7,7 @@ package main
 // новые стратегии при следующем запуске, без новой версии exe.
 
 import (
+	"dpibypass/doh"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,6 +32,8 @@ type remoteUpdate struct {
 	Services   []string   `json:"services"` // строки в формате sites.txt
 	// пресеты провайдеров: "AS12389": ["s1", "u2"] - какие стратегии пробовать первыми
 	Presets map[string][]string `json:"presets"`
+	// серверы зашифрованного DNS для вкладки DNS (новые появляются без переустановки)
+	DNSProviders []doh.Provider `json:"dns_providers"`
 }
 
 func updateCache() string { return filepath.Join(dataDir, "update.json") }
@@ -149,6 +152,7 @@ func applyUpdates() {
 			remotePresets[strings.ToUpper(asn)] = ids
 		}
 	}
+	doh.SetProviders(ru.DNSProviders)
 	msg := fmt.Sprintf("Обновления (%s, от %s): стратегий +%d", src, firstNonEmpty(ru.Updated, "?"), len(added))
 	if newSvc > 0 {
 		msg += fmt.Sprintf(", новых сервисов +%d", newSvc)

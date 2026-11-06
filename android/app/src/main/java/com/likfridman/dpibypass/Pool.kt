@@ -80,6 +80,11 @@ object Pool {
             .put("block_quic", Store.blockQuic(ctx))
             .put("telegram_mode", Store.tgMode(ctx))
             .put("doh", Store.doh(ctx))
+            .put("doh_provider", Store.dnsProvider(ctx))
+            .put("doh_custom", Store.dnsCustom(ctx))
+            .apply {
+                Engine.dnsSelected(ctx)?.let { sel -> put("doh_url", sel.optString("url")).put("doh_ips", sel.optJSONArray("ips") ?: JSONArray()) }
+            }
         if (procs.containsKey(Engine.UDP_PORT)) {
             // голос Discord: UDP 50000-65535
             // только к серверам голоса Discord: игры (Roblox и др.) используют те же порты, и подмена пакетов их ломает
