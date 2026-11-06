@@ -236,6 +236,61 @@ object Report {
         }
     }
 
+    /**
+     * Причины прошлых завершений приложения от самой системы (Android 11+): нативный сбой (например,
+     * в hev-socks5-tunnel внутри процесса), «не отвечает», нехватка памяти. Обычный перехватчик ошибок
+     * видит только падения Java, поэтому без этого часть сбоев была невидимой. Новые - отправляются отчётом.
+     */
+    fun sendExitReasons(ctx: Context) {
+        if (Build.VERSION.SDK_INT < 30 || !Store.consentOK(ctx)) return
+        Thread {
+            runCatching {
+                val am = ctx.getSystemService(android.app.ActivityManager::class.java)
+                val sp = ctx.getSharedPreferences("report", Context.MODE_PRIVATE)
+                val seen = sp.getLong("exit_seen", 0)
+                val bad = setOf(
+                    android.app.ApplicationExitInfo.REASON_CRASH, android.app.ApplicationExitInfo.REASON_CRASH_NATIVE,
+                    android.app.ApplicationExitInfo.REASON_ANR, android.app.ApplicationExitInfo.REASON_LOW_MEMORY,
+                    android.app.ApplicationExitInfo.REASON_SIGNALED, android.app.ApplicationExitInfo.REASON_INITIALIZATION_FAILURE,
+                    android.app.ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE,
+                )
+                val list = am.getHistoricalProcessExitReasons(ctx.packageName, 0, 8).filter { it.timestamp > seen }
+                if (list.isEmpty()) return@runCatching
+                sp.edit().putLong("exit_seen", list.maxOf { it.timestamp }).apply()
+                val arr = JSONArray()
+                for (e in list.filter { it.reason in bad }) {
+                    val trace = runCatching {
+                        e.traceInputStream?.use { st ->
+                            val b = st.readBytes().take(60_000).toByteArray()
+                            // ANR - текст; нативный сбой - tombstone (protobuf): строки из него читаются как текст
+                            String(b, Charsets.ISO_8859_1).replace(Regex("[^\\x20-\\x7E\\n]+"), " ").replace(Regex(" {3,}"), " ").take(30_000)
+                        }
+                    }.getOrNull() ?: ""
+                    arr.put(JSONObject().put("reason", reasonName(e.reason)).put("description", e.description ?: "")
+                        .put("status", e.status).put("importance", e.importance).put("pss_kb", e.pss).put("rss_kb", e.rss)
+                        .put("time", SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(e.timestamp)))
+                        .put("process", e.processName).put("trace", trace))
+                }
+                if (arr.length() == 0) return@runCatching
+                val first = arr.getJSONObject(0)
+                error("приложение завершилось: ${first.optString("reason")} ${first.optString("description")}")
+                send(ctx, "crash", extra = JSONObject().put("exit_info", arr)
+                    .put("crash", "${first.optString("reason")}: ${first.optString("description")}\n${first.optString("trace").take(3000)}"))
+            }
+        }.start()
+    }
+
+    private fun reasonName(r: Int) = when (r) {
+        android.app.ApplicationExitInfo.REASON_CRASH -> "CRASH (Java)"
+        android.app.ApplicationExitInfo.REASON_CRASH_NATIVE -> "CRASH_NATIVE"
+        android.app.ApplicationExitInfo.REASON_ANR -> "ANR (не отвечает)"
+        android.app.ApplicationExitInfo.REASON_LOW_MEMORY -> "LOW_MEMORY"
+        android.app.ApplicationExitInfo.REASON_SIGNALED -> "SIGNALED"
+        android.app.ApplicationExitInfo.REASON_INITIALIZATION_FAILURE -> "INITIALIZATION_FAILURE"
+        android.app.ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> "EXCESSIVE_RESOURCE_USAGE"
+        else -> "reason $r"
+    }
+
     /** Отчёт на случай, когда полный собрать не вышло */
     private fun minimal(ctx: Context, trigger: String) = JSONObject().put("schema", 1).put("trigger", trigger)
         .put("time", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US).format(Date()))

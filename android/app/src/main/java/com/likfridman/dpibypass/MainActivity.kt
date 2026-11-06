@@ -56,6 +56,7 @@ class MainActivity : Activity() {
         }.start()
         if (Store.consentOK(this)) {
             Report.sendPendingCrash(this)
+            Report.sendExitReasons(this)
             // отчёт при каждом запуске (не при повороте экрана)
             if (savedInstanceState == null) Report.send(this, "launch")
         }

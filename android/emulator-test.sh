@@ -13,6 +13,12 @@ adb logcat -d -s DPI_SELFTEST:I dpi-bypass:I | tee android-selftest.txt
 adb logcat -d -b crash | tee -a android-selftest.txt
 if adb logcat -d -b crash | grep -q "$PKG"; then echo "FAIL приложение падало (см. выше)" | tee -a android-selftest.txt; fi
 adb shell pidof $PKG >/dev/null && echo "OK   процесс приложения жив" | tee -a android-selftest.txt || echo "FAIL процесс приложения завершился" | tee -a android-selftest.txt
+# почему процесс завершился (система хранит причину) и системный журнал вокруг сбоя
+echo "--- exit-info ---" | tee -a android-selftest.txt
+adb shell dumpsys activity exit-info $PKG 2>/dev/null | head -60 | tee -a android-selftest.txt
+echo "--- logcat (ошибки) ---" | tee -a android-selftest.txt
+adb logcat -d '*:E' | grep -v "DPI_SELFTEST" | tail -150 | tee -a android-selftest.txt
+adb logcat -d | grep -E "DEBUG|libc|tombstone|hev|tproxy|$PKG|AndroidRuntime|lowmemorykiller|ActivityManager: (Kill|Process)" | tail -120 | tee -a android-selftest.txt
 # запрос из оболочки эмулятора идёт через туннель обхода (оболочка не исключена из VPN)
 sleep 5
 echo "--- запросы из оболочки эмулятора (идут через туннель обхода) ---" | tee -a android-selftest.txt
