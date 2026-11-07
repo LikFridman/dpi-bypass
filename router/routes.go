@@ -250,8 +250,11 @@ func (r *Router) serveRoute(rt *route, c net.Conn, target string, ip net.IP, fir
 			r.report(rt, up, false, "прокси не ответили")
 			continue
 		}
-		res := r.pipeVia(c, up, target, first, nil)
+		res := r.pipeViaOpt(c, up, target, first, nil, !last)
 		switch {
+		case res.retry:
+			r.report(rt, up, false, "сервер сбросил соединение")
+			continue // приложение ничего не получило - то же начало отправляем следующим способом
 		case res.dialErr != nil:
 			r.report(rt, up, false, shortReason(res.dialErr))
 			if !last {

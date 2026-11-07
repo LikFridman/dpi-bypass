@@ -393,11 +393,19 @@ type pipeResult struct {
 	got     int64         // получено от сервера
 	d       time.Duration // сколько длилось
 	upFirst bool          // первым закрыл сервер (а не приложение)
+	retry   bool          // сервер ничего не прислал, приложению ничего не отдано - можно другим способом
 }
 
 // pipeVia соединяет клиента с target через SOCKS5 upstream (или напрямую, "direct");
 // done(получено байт) - по завершении
 func (r *Router) pipeVia(c net.Conn, up, target string, first []byte, done func(got int64, d time.Duration)) pipeResult {
+	return r.pipeViaOpt(c, up, target, first, done, false)
+}
+
+// pipeViaOpt: retryable - если сервер закрыл или сбросил соединение, ничего не прислав, а приложение
+// после начала соединения больше ничего не отправляло, клиенту ничего не отдаётся и возвращается
+// retry: то же начало можно отправить запасным способом (приложение обрыва не заметит).
+func (r *Router) pipeViaOpt(c net.Conn, up, target string, first []byte, done func(got int64, d time.Duration), retryable bool) pipeResult {
 	start := time.Now()
 	u, err := r.dialUp(up, target)
 	if err != nil {
@@ -410,14 +418,16 @@ func (r *Router) pipeVia(c net.Conn, up, target string, first []byte, done func(
 	defer u.Close()
 	if len(first) > 0 {
 		if _, err := u.Write(first); err != nil {
-			return pipeResult{d: time.Since(start), upFirst: true}
+			return pipeResult{d: time.Since(start), upFirst: true, retry: retryable}
 		}
 	}
-	var got atomic.Int64
+	var got, sent atomic.Int64
+	var stopping atomic.Bool
 	ch := make(chan bool, 2) // true - закончилось направление сервер -> приложение
 	go func() {
-		io.Copy(u, c)
-		if tc, ok := u.(*net.TCPConn); ok {
+		n, _ := io.Copy(u, c)
+		sent.Store(n)
+		if tc, ok := u.(*net.TCPConn); ok && !stopping.Load() {
 			tc.CloseWrite()
 		}
 		ch <- false
@@ -425,12 +435,33 @@ func (r *Router) pipeVia(c net.Conn, up, target string, first []byte, done func(
 	go func() {
 		n, _ := io.Copy(c, u)
 		got.Store(n)
-		if tc, ok := c.(*net.TCPConn); ok {
+		if n == 0 && retryable {
+			stopping.Store(true) // решит основная часть: повтор или обрыв
+		} else if tc, ok := c.(*net.TCPConn); ok {
 			tc.CloseWrite()
 		}
 		ch <- true
 	}()
 	upFirst := <-ch
+	if upFirst && got.Load() == 0 && retryable {
+		// сервер ничего не прислал: остановить чтение от приложения и посмотреть, слало ли оно ещё что-то
+		c.SetReadDeadline(time.Now())
+		<-ch
+		c.SetReadDeadline(time.Time{})
+		if sent.Load() == 0 {
+			if done != nil {
+				done(0, time.Since(start))
+			}
+			return pipeResult{d: time.Since(start), upFirst: true, retry: true}
+		}
+		if tc, ok := c.(*net.TCPConn); ok {
+			tc.CloseWrite()
+		}
+		if done != nil {
+			done(0, time.Since(start))
+		}
+		return pipeResult{d: time.Since(start), upFirst: true}
+	}
 	// вторую сторону даём доделать, но не держим вечно
 	select {
 	case <-ch:

@@ -405,3 +405,57 @@ func TestSetTGProxies(t *testing.T) {
 		t.Fatal("не очистился")
 	}
 }
+
+// resetSocks - SOCKS, который принимает соединение, читает ClientHello и сразу закрывает (как DPI/плохой сервер)
+func resetSocks(t *testing.T) net.Listener {
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				g := make([]byte, 3)
+				io.ReadFull(c, g)
+				c.Write([]byte{5, 0})
+				h := make([]byte, 4)
+				io.ReadFull(c, h)
+				readAddr(c, h[3])
+				c.Write([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
+				c.Read(make([]byte, 4096))
+				c.Close()
+			}(c)
+		}
+	}()
+	return ln
+}
+
+// Сервер сбросил соединение, ничего не прислав: приложение этого не видит - то же начало уходит запасным способом
+func TestRouteRetryOnEarlyReset(t *testing.T) {
+	got := make(chan string, 8)
+	backup := fakeSocks(t, got)
+	defer backup.Close()
+	bad := resetSocks(t)
+	defer bad.Close()
+	r := New(Config{Listen: "127.0.0.1:0", Default: backup.Addr().String(), Groups: []Group{
+		{Name: "X", Upstreams: []string{bad.Addr().String(), backup.Addr().String()}, Domains: []string{"x.com"}},
+	}})
+	r.V6Check = func() bool { return false }
+	if err := r.Listen(); err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	hello := clientHello("x.com")
+	c := socksConnect(t, r.Addr(), "104.244.42.1:443")
+	c.Write(hello)
+	c.SetReadDeadline(time.Now().Add(4 * time.Second))
+	b := make([]byte, 2)
+	if _, err := io.ReadFull(c, b); err != nil || string(b) != "ok" {
+		t.Fatalf("не перешло на запасной без обрыва: %v %q", err, b)
+	}
+	c.Close()
+	if g := <-got; !strings.HasSuffix(g, "|"+strconv.Itoa(len(hello))) {
+		t.Fatalf("запасной получил не то начало: %s", g)
+	}
+}

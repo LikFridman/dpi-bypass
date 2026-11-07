@@ -264,9 +264,12 @@ func selftest() int {
 				}
 				check("VPN: X/Twitter идёт через VPN и отвечает", ri.Active != "" && ri.Active != router.UpDirect && act.OK, fmt.Sprintf("%+v", ri))
 				// как браузер: SOCKS5 с именем сайта к маршрутизатору
-				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-				r := svc.Run(ctx, svc.Site{Name: "X/Twitter", Host: "x.com", Domains: []string{"x.com", "twimg.com"}}, svc.Socks(pcRouterAddr), svc.Options{Quick: true})
-				cancel()
+				var r svc.Result
+				for try := 0; try < 2 && !r.OK; try++ { // бесплатные серверы бывают нестабильны - как браузер, со второй попытки
+					ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+					r = svc.Run(ctx, svc.Site{Name: "X/Twitter", Host: "x.com", Domains: []string{"x.com", "twimg.com"}}, svc.Socks(pcRouterAddr), svc.Options{Quick: true})
+					cancel()
+				}
 				check("VPN: сайт через маршрутизатор (как браузер)", r.OK, r.Stage+" "+r.Reason)
 				check("VPN: системный прокси включён для сервисов", regQuery(inetKey, "AutoConfigURL") != "", regQuery(inetKey, "AutoConfigURL"))
 				setRoute("X/Twitter", "")
