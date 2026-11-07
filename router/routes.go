@@ -8,7 +8,7 @@ package router
 
 import (
 	"context"
-	"crypto/tls"
+	"dpibypass/check"
 	"dpibypass/tg"
 	"encoding/json"
 	"fmt"
@@ -45,6 +45,7 @@ type route struct {
 	mu   sync.Mutex
 	st   map[string]*upState
 	cur  [2]string // последний выбранный способ [сайты, MTProto] (для журнала о переключении)
+	used time.Time // последнее соединение приложения
 }
 
 func (rt *route) state(up string) *upState {
@@ -74,6 +75,27 @@ func (rt *route) pick(mtproto bool) []string {
 		} else {
 			good = append(good, u)
 		}
+	}
+	if rt.g.Fastest {
+		// проверенные и рабочие - по задержке; затем непроверенные; затем не ответившие при проверке
+		rank := func(u string) (int, int) {
+			s := rt.state(u)
+			switch {
+			case s.checked && s.ok:
+				return 0, s.ping
+			case !s.checked:
+				return 1, 0
+			}
+			return 2, 0
+		}
+		sort.SliceStable(good, func(a, b int) bool {
+			ra, pa := rank(good[a])
+			rb, pb := rank(good[b])
+			if ra != rb {
+				return ra < rb
+			}
+			return pa < pb
+		})
 	}
 	return append(good, bad...)
 }
@@ -142,6 +164,20 @@ func (r *Router) buildRoutes() {
 	}
 }
 
+// SetTGProxies заменяет список MTProto-прокси; возвращает, сколько разобрано
+func (r *Router) SetTGProxies(links []string) int {
+	var ups []tg.Upstream
+	for _, l := range links {
+		if u, err := tg.ParseUpstream(l); err == nil {
+			ups = append(ups, u)
+		}
+	}
+	r.tgMu.Lock()
+	r.tgUps = ups
+	r.tgMu.Unlock()
+	return len(ups)
+}
+
 // routeFor - маршрут по адресу (для соединений без имени) или по имени сайта
 func (r *Router) routeFor(ip net.IP, name string) *route {
 	if ip != nil {
@@ -182,6 +218,9 @@ func (r *Router) serveRoute(rt *route, c net.Conn, target string, ip net.IP, fir
 	if mtproto {
 		k = 1
 	}
+	rt.mu.Lock()
+	rt.used = time.Now()
+	rt.mu.Unlock()
 	for i, up := range ups {
 		last := i == len(ups)-1
 		rt.mu.Lock()
@@ -312,8 +351,9 @@ func (r *Router) checkUp(rt *route, up string) (int, error) {
 	}
 	defer c.Close()
 	c.SetDeadline(time.Now().Add(t))
-	tc := tls.Client(c, &tls.Config{ServerName: host, NextProtos: []string{"h2", "http/1.1"}})
-	if err := tc.Handshake(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), t)
+	defer cancel()
+	if err := check.ChromeHandshake(ctx, c, host); err != nil {
 		return 0, err
 	}
 	ms := int(time.Since(start).Milliseconds())
@@ -375,14 +415,22 @@ func (r *Router) checkRoute(rt *route, all bool) {
 }
 
 func (r *Router) checker(ctx context.Context) {
-	tick := time.NewTicker(20 * time.Second)
+	// сразу после запуска - все способы сервисов «самый быстрый», чтобы основной был выбран по скорости
+	for _, rt := range r.routes {
+		if rt.g.Fastest && len(rt.g.Upstreams) > 1 {
+			go r.checkRoute(rt, true)
+		}
+	}
+	tick := time.NewTicker(30 * time.Second)
 	defer tick.Stop()
+	n := 0
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
 		}
+		n++
 		for _, rt := range r.routes {
 			if rt.g.Check == "" && len(rt.g.Upstreams) < 2 {
 				continue
@@ -390,7 +438,17 @@ func (r *Router) checker(ctx context.Context) {
 			if len(rt.g.Upstreams) == 1 && rt.g.Upstreams[0] == UpDirect {
 				continue
 			}
-			r.checkRoute(rt, false)
+			// сервисом давно не пользовались и он на основном способе - не тратим трафик на проверки
+			rt.mu.Lock()
+			idle := time.Since(rt.used) > 3*time.Minute
+			rt.mu.Unlock()
+			act := rt.pick(rt.g.Check == "tg")
+			onBackup := len(act) > 0 && act[0] != rt.g.Upstreams[0]
+			if idle && !onBackup {
+				continue
+			}
+			// «самый быстрый»: раз в 3 минуты перемеряем все способы, иначе - текущий и те, что выше
+			r.checkRoute(rt, rt.g.Fastest && n%6 == 0)
 		}
 	}
 }
@@ -482,6 +540,19 @@ func (r *Router) serveControl(addr string) error {
 	}
 	mux.HandleFunc("/state", func(w http.ResponseWriter, q *http.Request) {
 		write(w, map[string]any{"routes": r.Routes(), "vpn": r.VPNAlive()})
+	})
+	// новый список MTProto-прокси для способа tg-proxy (без перезапуска маршрутизатора)
+	mux.HandleFunc("/tgproxies", func(w http.ResponseWriter, q *http.Request) {
+		if q.Method != http.MethodPost {
+			http.Error(w, "POST", http.StatusMethodNotAllowed)
+			return
+		}
+		var links []string
+		if err := json.NewDecoder(http.MaxBytesReader(w, q.Body, 1<<20)).Decode(&links); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		write(w, map[string]any{"proxies": r.SetTGProxies(links)})
 	})
 	mux.HandleFunc("/check", func(w http.ResponseWriter, q *http.Request) {
 		write(w, map[string]any{"routes": r.CheckNow(q.URL.Query().Get("name")), "vpn": r.VPNAlive()})

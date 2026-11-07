@@ -134,6 +134,7 @@ object TgProxy {
                 p.waitFor(5, TimeUnit.SECONDS)
                 if (res.length() > 0 || found.length() == 0) found = res
                 foundAt = System.currentTimeMillis()
+                Pool.pushTgProxies(app) // маршрутизатор берёт свежие прокси для Telegram сразу
                 for (i in 0 until res.length()) res.getJSONObject(i).let { Engine.log("Telegram: ${it.optString("kind")} ${it.optString("name")} - ${it.optInt("ms")} ms") }
                 done?.invoke(if (res.length() > 0) "Найдено прокси: ${res.length()}, лучший ${res.getJSONObject(0).optInt("ms")} ms" else "Рабочих публичных прокси не нашлось")
             } catch (e: Exception) {

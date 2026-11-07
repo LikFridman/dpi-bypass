@@ -34,8 +34,9 @@ type Group struct {
 	Upstream  string   `json:"upstream"`  // один способ (старый вид): 127.0.0.1:1081; "direct" - без обхода
 	Upstreams []string `json:"upstreams"` // способы по порядку: основной, затем запасные
 	Domains   []string `json:"domains"`
-	CIDRs     []string `json:"cidrs"` // и по адресам (Telegram: соединения приложения без имени сайта)
-	Check     string   `json:"check"` // что проверять: имя сайта; "tg" - Telegram (MTProto)
+	CIDRs     []string `json:"cidrs"`   // и по адресам (Telegram: соединения приложения без имени сайта)
+	Check     string   `json:"check"`   // что проверять: имя сайта; "tg" - Telegram (MTProto)
+	Fastest   bool     `json:"fastest"` // основной - самый быстрый по проверке (иначе - первый по списку)
 }
 
 // VPNSlot - сервер VPN на своём локальном порту (Xray запускает маршрутизатор)

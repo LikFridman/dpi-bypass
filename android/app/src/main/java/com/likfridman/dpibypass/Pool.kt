@@ -88,24 +88,126 @@ object Pool {
         return listOf("--tls-timeout", "3") + s.args + listOf("--auto", "torst,ssl_err") + b
     }
 
+    /** Диапазоны адресов Telegram (как в ядре): соединения приложения Telegram без имени сайта */
+    val TG_CIDRS = listOf("149.154.160.0/20", "91.108.4.0/22", "91.108.8.0/22", "91.108.12.0/22", "91.108.16.0/22",
+        "91.108.20.0/22", "91.108.56.0/22", "91.105.192.0/23", "95.161.64.0/20", "185.76.151.0/24",
+        "2001:67c:4e8::/48", "2001:b28:f23c::/46", "2a0a:f280::/32")
+
+    /** Способ обхода сервиса по плану: адрес копии byedpi или direct (None / не выбран) */
+    fun bypassUp(pl: Plan, site: String): String {
+        val gi = pl.groups.indexOfFirst { site in it.sites }
+        if (gi >= 0) return if (pl.groups[gi].strategy == Engine.NONE) "direct" else "127.0.0.1:${Engine.GROUP_PORT + gi}"
+        return "127.0.0.1:${Engine.PORT}"
+    }
+
+    /** Отправить маршрутизатору свежий список MTProto-прокси (после поиска или добавления своего) */
+    fun pushTgProxies(ctx: Context) {
+        if (!routerReady) return
+        runCatching {
+            val c = java.net.URL("http://127.0.0.1:${Engine.CONTROL_PORT}/tgproxies").openConnection(java.net.Proxy.NO_PROXY) as java.net.HttpURLConnection
+            c.connectTimeout = 2000; c.readTimeout = 5000; c.requestMethod = "POST"; c.doOutput = true
+            c.setRequestProperty("Content-Type", "application/json")
+            c.outputStream.use { it.write(JSONArray(tgProxyLinks(ctx)).toString().toByteArray()) }
+            val n = runCatching { JSONObject(c.inputStream.bufferedReader().readText()).optInt("proxies") }.getOrDefault(0)
+            c.disconnect()
+            Engine.dbg("маршрутизатор: MTProto-прокси для Telegram - $n")
+        }.onFailure { Engine.dbg("маршрутизатор: список прокси не передан (${it.message})") }
+    }
+
+    /** Пул VPN, с которым запущен маршрутизатор */
+    @Volatile private var startedVpn: List<Pair<String, Int>> = emptyList()
+
+    /** Серверы VPN поменялись (после проверки): перезапустить маршрутизатор, только если пул другой */
+    fun refreshVpn(ctx: Context) {
+        val pl = plan ?: return
+        if (!Engine.running || Vpn.pool(ctx) == startedVpn) return
+        restartRouter(ctx, pl)
+    }
+
+    /** Ссылки MTProto-прокси для Telegram (свои и найденные) */
+    private fun tgProxyLinks(ctx: Context): List<String> {
+        val l = Store.tgProxies(ctx).filter { it.startsWith("tg://") || it.startsWith("https://t.me/proxy") }.toMutableList()
+        val f = TgProxy.found
+        for (i in 0 until f.length()) f.optJSONObject(i)?.optString("link")?.takeIf { it.isNotEmpty() }?.let { l += it }
+        return l.distinct()
+    }
+
+    /**
+     * Способы для каждого сервиса по порядку (основной, затем запасные):
+     *  - обход стратегией (копия byedpi), VPN (лучшие серверы пула), напрямую;
+     *  - Telegram: самый быстрый из обхода, WebSocket, VPN и MTProto-прокси;
+     *  - выбранный вручную способ - первым, остальные остаются запасными;
+     *  - None - только напрямую.
+     */
+    fun siteUpstreams(ctx: Context, pl: Plan, site: String): Pair<List<String>, Boolean> {
+        val bp = bypassUp(pl, site)
+        if (bp == "direct") return listOf("direct") to false
+        val isTG = site == "Telegram"
+        val vps = Vpn.ports(ctx, isTG).map { "127.0.0.1:$it" }
+        // tg-proxy - всегда: список прокси обновляется в маршрутизаторе на ходу (пустой - способ пропускается)
+        val tgx = if (isTG) listOf("tg-ws", "tg-proxy") else emptyList()
+        val r = Store.routes(ctx)[site] ?: ""
+        val ups = mutableListOf<String>()
+        var fastest = false
+        when {
+            r == "vpn" -> { ups += vps; ups += bp; ups += tgx }
+            r.startsWith("vpn:") -> { Vpn.portOf(ctx, r.removePrefix("vpn:"))?.let { ups += "127.0.0.1:$it" }; ups += vps; ups += bp; ups += tgx }
+            isTG && (r == "tg-ws" || r == "tg-proxy") -> { ups += r; ups += bp; ups += tgx; ups += vps }
+            r == "bypass" -> { ups += bp; ups += tgx; ups += vps }
+            isTG -> { ups += bp; ups += tgx; ups += vps; fastest = true }
+            // стратегией не исправить (блок по IP) - сначала VPN
+            site in Store.unfixable(ctx) && vps.isNotEmpty() -> { ups += vps; ups += bp }
+            else -> { ups += bp; ups += vps }
+        }
+        return ups.distinct() to fastest
+    }
+
+    /** Понятные имена способов (для журнала маршрутизатора и страницы) */
+    fun upName(ctx: Context, pl: Plan, up: String): String = when {
+        up == "direct" -> "напрямую"
+        up == "tg-ws" -> "WebSocket"
+        up == "tg-proxy" -> "MTProto-прокси"
+        up.startsWith("127.0.0.1:") -> {
+            val port = up.removePrefix("127.0.0.1:").toIntOrNull() ?: 0
+            when {
+                port >= Vpn.PORT_BASE -> Vpn.nameOf(ctx, port)
+                port == Engine.PORT -> "обход · " + Engine.strategyName(pl.default)
+                else -> pl.groups.getOrNull(port - Engine.GROUP_PORT)?.let { "обход · " + Engine.strategyName(it.strategy) } ?: "обход"
+            }
+        }
+        else -> up
+    }
+
     private fun routerConfig(ctx: Context, pl: Plan): JSONObject {
         val groups = JSONArray()
-        pl.groups.forEachIndexed { i, g ->
-            val domains = g.sites.flatMap { n -> Engine.sites.firstOrNull { it.name == n }?.domains ?: emptyList() }
-            val up = if (g.strategy == Engine.NONE) "direct" else "127.0.0.1:${Engine.GROUP_PORT + i}"
-            groups.put(JSONObject().put("upstream", up).put("domains", JSONArray(domains)))
+        val names = JSONObject()
+        for (s in Engine.sites) {
+            val (ups, fastest) = siteUpstreams(ctx, pl, s.name)
+            ups.forEach { names.put(it, upName(ctx, pl, it)) }
+            val g = JSONObject().put("name", s.name).put("upstreams", JSONArray(ups)).put("domains", JSONArray(s.domains))
+                .put("check", if (s.name == "Telegram") "tg" else s.host).put("fastest", fastest)
+            if (s.name == "Telegram") g.put("cidrs", JSONArray(TG_CIDRS))
+            groups.put(g)
         }
+        val vpn = JSONArray()
+        val vp = Vpn.pool(ctx)
+        startedVpn = vp
+        vp.forEach { (l, port) -> vpn.put(JSONObject().put("link", l).put("port", port)) }
         val o = JSONObject()
             .put("listen", "127.0.0.1:${Engine.ROUTER_PORT}")
             .put("default", "127.0.0.1:${Engine.PORT}")
             .put("groups", groups)
+            .put("names", names)
             .put("block_quic", Store.blockQuic(ctx))
             .put("telegram_mode", Store.tgMode(ctx))
             .put("doh", Store.doh(ctx))
             .put("doh_provider", Store.dnsProvider(ctx))
             .put("doh_custom", Store.dnsCustom(ctx))
+            .put("tg_proxies", JSONArray(tgProxyLinks(ctx)))
+            .put("control", "127.0.0.1:${Engine.CONTROL_PORT}")
             .apply {
                 Engine.dnsSelected(ctx)?.let { sel -> put("doh_url", sel.optString("url")).put("doh_ips", sel.optJSONArray("ips") ?: JSONArray()) }
+                if (vpn.length() > 0) put("vpn", vpn).put("xray", Vpn.xray(ctx).absolutePath)
             }
         if (procs.containsKey(Engine.UDP_PORT)) {
             // голос Discord: UDP 50000-65535
@@ -116,8 +218,41 @@ object Pool {
         return o
     }
 
+    /** Xray работает (null - VPN не используется) */
+    val vpnAlive: Any? get() = runCatching { JSONObject(routerStats).opt("vpn") }.getOrNull().takeIf { it != JSONObject.NULL }
+
+    /** Состояние маршрутов из маршрутизатора: сервис -> {active, ping, ok, ups[]} */
+    fun routes(): Map<String, JSONObject> {
+        val a = runCatching { JSONObject(routerStats).optJSONArray("routes") }.getOrNull() ?: return emptyMap()
+        return (0 until a.length()).mapNotNull { a.optJSONObject(it) }.associateBy { it.optString("name") }
+    }
+
+    /** Проверить способы сейчас (через маршрутизатор): name - сервис, пусто - все. Возвращает routes. */
+    fun checkNow(name: String = ""): Map<String, JSONObject> {
+        if (!routerReady) return emptyMap()
+        val q = if (name.isEmpty()) "" else "?name=" + java.net.URLEncoder.encode(name, "UTF-8")
+        val body = runCatching {
+            val c = java.net.URL("http://127.0.0.1:${Engine.CONTROL_PORT}/check$q").openConnection(java.net.Proxy.NO_PROXY) as java.net.HttpURLConnection
+            c.connectTimeout = 2000; c.readTimeout = 30000
+            c.inputStream.bufferedReader().readText().also { c.disconnect() }
+        }.getOrNull() ?: return emptyMap()
+        val a = runCatching { JSONObject(body).optJSONArray("routes") }.getOrNull() ?: return emptyMap()
+        val m = (0 until a.length()).mapNotNull { a.optJSONObject(it) }.associateBy { it.optString("name") }
+        // свежее состояние сразу в статистику, чтобы страница его увидела
+        runCatching {
+            val st = JSONObject(routerStats)
+            val all = st.optJSONArray("routes") ?: JSONArray()
+            val merged = JSONArray()
+            for (i in 0 until all.length()) all.optJSONObject(i)?.let { merged.put(m[it.optString("name")] ?: it) }
+            if (all.length() == 0) m.values.forEach { merged.put(it) }
+            routerStats = st.put("routes", merged).toString()
+        }
+        return m
+    }
+
     private fun startRouter(ctx: Context, pl: Plan) {
         routerReady = false
+        routerStats = "{}" // состояние прежнего маршрутизатора (способы, VPN) больше не верно
         val bin = File(ctx.applicationInfo.nativeLibraryDir, "libtgproxy.so")
         val cfg = File(ctx.filesDir, "router.json")
         cfg.writeText(routerConfig(ctx, pl).toString())
@@ -134,7 +269,9 @@ object Pool {
                     when {
                         line.startsWith("READY ") -> routerReady = true
                         line.startsWith("RSTATS ") -> routerStats = line.removePrefix("RSTATS ")
-                        line.startsWith("LOG ") -> line.removePrefix("LOG ").let { if ("перевожу" in it) Engine.log(it) else Engine.dbg(it) }
+                        line.startsWith("LOG ") -> line.removePrefix("LOG ").let {
+                            if ("перевожу" in it || "снова работает" in it || "теперь через" in it || it.startsWith("VPN")) Engine.log(it) else Engine.dbg(it)
+                        }
                         line.startsWith("ERR ") -> Engine.err("Маршрутизатор: ${line.removePrefix("ERR ")}")
                     }
                 }
@@ -143,6 +280,28 @@ object Pool {
         }.apply { isDaemon = true }.start()
         for (i in 0 until 30) { if (routerReady) break; Thread.sleep(100) }
         if (!routerReady) Engine.log("Маршрутизатор не ответил - трафик пойдёт сразу в byedpi")
+    }
+
+    /** Перезапустить только маршрутизатор (новые способы или серверы VPN), byedpi не трогая */
+    @Synchronized
+    fun restartRouter(ctx: Context, pl: Plan) {
+        if (procs[Engine.PORT]?.p?.isAlive != true) return
+        plan = pl
+        router?.let { it.destroy(); it.waitFor(2, TimeUnit.SECONDS) }
+        router = null
+        killStray("libxray.so")
+        startRouter(ctx, pl)
+    }
+
+    /** Свои процессы с этим именем, оставшиеся без родителя (Xray после падения маршрутизатора) */
+    private fun killStray(name: String) {
+        val me = android.os.Process.myPid()
+        File("/proc").listFiles()?.forEach { d ->
+            val pid = d.name.toIntOrNull() ?: return@forEach
+            if (pid == me) return@forEach
+            val cmd = runCatching { File(d, "cmdline").readText() }.getOrNull() ?: return@forEach
+            if (cmd.substringBefore('\u0000').endsWith(name)) runCatching { android.os.Process.killProcess(pid) }
+        }
     }
 
     /** Перезапуск упавших процессов (вызывается сторожем) */
@@ -168,6 +327,7 @@ object Pool {
         router?.let { it.destroy(); it.waitFor(2, TimeUnit.SECONDS) }
         router = null
         routerReady = false
+        killStray("libxray.so")
         for (pr in procs.values) Engine.stopProxy(pr.p)
         procs.clear()
     }

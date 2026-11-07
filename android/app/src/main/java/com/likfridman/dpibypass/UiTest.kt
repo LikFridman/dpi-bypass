@@ -32,7 +32,7 @@ object UiTest {
         val logStart = Engine.logsSince(0).first
 
         // вкладки
-        for (p in listOf("home", "sites", "dns", "tg", "log", "set", "home")) {
+        for (p in listOf("home", "sites", "vpn", "dns", "log", "set", "home")) {
             click(".tab[data-p=$p]", "вкладка $p"); Thread.sleep(700)
         }
         alive("переключение вкладок")
@@ -69,25 +69,73 @@ object UiTest {
         check("нажатие: Test у стратегии", tested == "\"ok\"", tested ?: "")
         Thread.sleep(1500); waitIdle(90)
         alive("Test стратегии")
-        val used = js("(function(){const b=[...document.querySelectorAll('#shList button')].filter(x=>x.textContent==='Use')[1];if(!b)return 'none';b.click();return 'ok'})()")
-        check("нажатие: Use у стратегии", used == "\"ok\"", used ?: "")
-        Thread.sleep(8000)
+        // кнопка Use в строке, где заголовок начинается с prefix (способ, None) или в строке с Test (стратегия)
+        fun useIn(prefix: String?, what: String) {
+            val cond = if (prefix == null) "r.querySelector('button')&&[...r.querySelectorAll('button')].some(x=>x.textContent==='Test')"
+                else "(r.querySelector('.nm b')||{}).textContent&&r.querySelector('.nm b').textContent.startsWith(${q(prefix)})"
+            val r = js("(function(){const r=[...document.querySelectorAll('#shList .st')].find(r=>$cond);if(!r)return 'none';const b=[...r.querySelectorAll('button')].find(x=>x.textContent==='Use');if(!b)return 'nobtn';b.click();return 'ok'})()")
+            check("нажатие: Use - $what", r == "\"ok\"", r ?: "")
+        }
+        useIn(null, "стратегия"); Thread.sleep(8000)
         alive("Use стратегии")
-        val none = js("(function(){const b=document.querySelector('#shList .st button');if(!b)return 'none';b.click();return 'ok'})()")
-        check("нажатие: None (без обхода)", none == "\"ok\"", none ?: "")
-        Thread.sleep(8000)
+        useIn("None", "None (без обхода)"); Thread.sleep(8000)
         alive("None")
+        useIn("Обход", "способ «обход»"); Thread.sleep(6000)
+        alive("способ обход")
         click("#shAuto", "Auto (снять закрепление)"); Thread.sleep(8000)
         alive("Auto")
+        click("#shCheck", "Check now (проверка способов)"); Thread.sleep(12000)
+        val ups = js("document.querySelectorAll('#shList .st .bd.ok').length")?.toIntOrNull() ?: 0
+        check("способы сервиса проверены (есть рабочие)", ups > 0, "рабочих строк $ups")
         click("#shClose", "закрыть окно стратегий"); Thread.sleep(500)
 
         // диагностика, Telegram, настройки, журнал, отчёт
         click("[data-a=diag]", "Diagnostics"); Thread.sleep(1500); waitIdle(90)
         alive("Diagnostics")
-        click(".tab[data-p=tg]", "вкладка Telegram"); Thread.sleep(600)
-        click("[data-a=tgFind]", "поиск прокси Telegram"); Thread.sleep(15000)
-        click("[data-a=tgTest]", "проверка Telegram"); Thread.sleep(10000)
+        // Telegram - в общем списке сервисов: способы WebSocket, MTProto-прокси, поиск прокси
+        click(".tab[data-p=sites]", "вкладка Sites"); Thread.sleep(600)
+        val tgOpen = js("(function(){const r=[...document.querySelectorAll('#allSites .r.click')].find(x=>x.querySelector('.nm').firstChild.textContent==='Telegram');if(!r)return 'none';r.click();return 'ok'})()")
+        check("окно Telegram открылось", tgOpen == "\"ok\"", tgOpen ?: ""); Thread.sleep(2000)
+        val tgRows = js("[...document.querySelectorAll('#shList .st .nm b')].map(b=>b.textContent).join('|')") ?: ""
+        check("у Telegram есть WebSocket и MTProto", "WebSocket" in tgRows && "MTProto" in tgRows, tgRows.take(200))
+        js("(function(){const b=[...document.querySelectorAll('#shList button')].find(x=>x.textContent==='Find');b&&b.click()})()"); Thread.sleep(20000)
+        useIn("WebSocket", "Telegram через WebSocket"); Thread.sleep(8000)
+        alive("Telegram WebSocket")
+        click("#shCheck", "Check now у Telegram"); Thread.sleep(15000)
+        val tgAct = Pool.routes()["Telegram"]
+        check("Telegram: способ выбран и проверен", tgAct?.optString("active") == "tg-ws", tgAct?.toString()?.take(400) ?: "нет данных маршрутизатора")
+        click("#shAuto", "Telegram - Auto"); Thread.sleep(8000)
+        click("#shClose", "закрыть окно Telegram"); Thread.sleep(500)
         alive("Telegram")
+
+        // VPN: свой ключ (разбор, удаление), проверка серверов, сервис через VPN
+        click(".tab[data-p=vpn]", "вкладка VPN"); Thread.sleep(600)
+        js("document.querySelector('#vpnIn').value='vless://00000000-0000-0000-0000-000000000000@127.0.0.1:9?security=none&type=tcp#selftest'")
+        click("#vpnAdd", "добавить свой ключ"); Thread.sleep(3000)
+        val own = js("document.querySelectorAll('#vpnOwn .fr').length")?.toIntOrNull() ?: 0
+        check("свой ключ появился в списке", own > 0, "строк $own")
+        for (i in 0 until 60) { if (!Vpn.isTesting) break; Thread.sleep(1000) }
+        js("(function(){const b=[...document.querySelectorAll('#vpnOwn button')].find(x=>x.textContent==='Remove');b&&b.click()})()"); Thread.sleep(1500)
+        check("свой ключ удаляется", Vpn.own(m).isEmpty(), Vpn.own(m).joinToString())
+        click("#vpnTest", "VPN Test all"); Thread.sleep(3000)
+        for (i in 0 until 300) { if (!Vpn.isTesting) break; Thread.sleep(1000) }
+        val vok = Vpn.best(m).size
+        check("VPN: рабочие серверы найдены", vok > 0, js("document.querySelector('#vpnStat').textContent") ?: "")
+        alive("VPN Test")
+        if (vok > 0) {
+            for (i in 0 until 20) { if (Pool.vpnAlive == true) break; Thread.sleep(1000) }
+            check("VPN: Xray запущен маршрутизатором", Pool.vpnAlive == true, "vpn=${Pool.vpnAlive}")
+            js("dpiCall('route','X/Twitter|vpn');1"); Thread.sleep(8000)
+            val ri = Pool.checkNow("X/Twitter")["X/Twitter"]
+            val act = ri?.optString("active") ?: ""
+            val actOk = (0 until (ri?.optJSONArray("ups")?.length() ?: 0)).map { ri!!.getJSONArray("ups").getJSONObject(it) }.firstOrNull { it.optBoolean("active") }
+            check("VPN: X/Twitter идёт через VPN и отвечает", Engine.kindOfUp(act) == "vpn" && actOk?.optBoolean("ok") == true, ri?.toString()?.take(500) ?: "нет данных")
+            val probe = Engine.probeAll(Pool.tunnelPort(), Engine.sites.filter { it.name == "X/Twitter" })["X/Twitter"]
+            check("VPN: проверка X/Twitter через туннель", probe?.ok == true, probe?.detail ?: "")
+            js("dpiCall('route','X/Twitter|');1"); Thread.sleep(6000)
+            alive("сервис через VPN")
+        }
+
         click(".tab[data-p=set]", "вкладка Settings"); Thread.sleep(600)
         for (t in listOf("#togDoh", "#togQuic", "#togUdp")) { click(t, "переключатель $t"); Thread.sleep(4000); click(t, "переключатель $t обратно"); Thread.sleep(4000) }
         alive("переключатели настроек")

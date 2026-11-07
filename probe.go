@@ -4,7 +4,7 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
+	"dpibypass/check"
 	"dpibypass/tg"
 	"encoding/json"
 	"errors"
@@ -216,8 +216,9 @@ func probeHost(host string) Result {
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(totalTO))
 
-	tc := tls.Client(conn, &tls.Config{ServerName: host, NextProtos: []string{"http/1.1"}})
-	if err := tc.Handshake(); err != nil {
+	// ClientHello как у Chrome: DPI смотрит на него, и проверка должна видеть то же, что браузер
+	tc, err := check.ChromeClient(context.Background(), conn, host, true)
+	if err != nil {
 		switch {
 		case isTimeout(err):
 			return Result{StTLS, "DPI: TLS завис (блокировка по SNI)", 0}

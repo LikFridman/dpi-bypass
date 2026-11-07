@@ -347,8 +347,13 @@ func runRouter(path string) {
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
 	go func() { <-sig; r.Close(); os.Exit(0) }()
 	fmt.Printf("READY %s\n", r.Addr())
-	for {
-		time.Sleep(10 * time.Second)
+	for i := 0; ; i++ {
+		// первые полминуты - чаще: приложение сразу видит способы сервисов и VPN
+		if i < 10 {
+			time.Sleep(3 * time.Second)
+		} else {
+			time.Sleep(5 * time.Second)
+		}
 		groups := map[string]int64{}
 		r.St.ByGroup.Range(func(k, v any) bool {
 			groups[k.(string)] = v.(*atomic.Int64).Load()

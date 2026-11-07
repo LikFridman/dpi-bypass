@@ -13,7 +13,6 @@ package check
 
 import (
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -98,10 +97,8 @@ const ua = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, 
 func client(dial Dial, timeout time.Duration) *http.Client {
 	tr := &http.Transport{
 		DialContext:           dial,
-		TLSHandshakeTimeout:   7 * time.Second,
+		DialTLSContext:        dialChrome(dial), // TLS как у Chrome / приложения YouTube
 		ResponseHeaderTimeout: 8 * time.Second,
-		ForceAttemptHTTP2:     true,
-		TLSClientConfig:       &tls.Config{RootCAs: testRoots},
 		DisableCompression:    true,
 		MaxIdleConnsPerHost:   4,
 	}
@@ -173,8 +170,7 @@ func ping(ctx context.Context, dial Dial, host string) (ms int, phase string, er
 	if dl, ok := ctx.Deadline(); ok {
 		c.SetDeadline(dl)
 	}
-	tc := tls.Client(c, &tls.Config{ServerName: name, RootCAs: testRoots, NextProtos: []string{"h2", "http/1.1"}})
-	if err := tc.HandshakeContext(ctx); err != nil {
+	if _, err := chromeConn(ctx, c, name, false); err != nil {
 		return 0, "tls", err
 	}
 	ms = int(time.Since(t).Milliseconds())

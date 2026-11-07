@@ -36,7 +36,7 @@ object Store {
         val e = p(ctx).edit()
         for (k in p(ctx).all.keys) {
             if (k == "plan" || k == "strategy" || k.startsWith("plan@") || k.startsWith("planAt@") ||
-                k in listOf("matrix", "pins", "custom", "unfixable", "worked")) e.remove(k)
+                k in listOf("matrix", "pins", "routes", "custom", "unfixable", "worked")) e.remove(k)
         }
         e.apply()
     }
@@ -126,6 +126,20 @@ object Store {
         val o = runCatching { JSONObject(p(ctx).getString("pins", "{}")!!) }.getOrElse { JSONObject() }
         if (id == null) o.remove(site) else o.put(site, id)
         p(ctx).edit().putString("pins", o.toString()).apply()
+    }
+
+    /**
+     * Способ для сервиса, выбранный вручную: vpn (лучший VPN), vpn:<id> (этот сервер), tg-ws, tg-proxy,
+     * bypass (обход стратегией). Нет записи - автоматически. Стратегия и None - в pins.
+     */
+    fun routes(ctx: Context): Map<String, String> {
+        val o = runCatching { JSONObject(p(ctx).getString("routes", "{}")!!) }.getOrElse { JSONObject() }
+        return o.keys().asSequence().associateWith { o.getString(it) }
+    }
+    fun setRoute(ctx: Context, site: String, v: String?) {
+        val o = runCatching { JSONObject(p(ctx).getString("routes", "{}")!!) }.getOrElse { JSONObject() }
+        if (v.isNullOrEmpty()) o.remove(site) else o.put(site, v)
+        p(ctx).edit().putString("routes", o.toString()).apply()
     }
 
     /** Результаты проверок стратегий: id -> сайт -> {ok, stage, ping, kbps, full, at} */

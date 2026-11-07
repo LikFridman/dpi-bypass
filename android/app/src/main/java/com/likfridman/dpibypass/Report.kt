@@ -346,6 +346,8 @@ object Report {
             .put("ping_all", if (Engine.checkedAt > 0) JSONObject().put("at", Engine.checkedAt).put("sites", sitesJson(Engine.results)) else JSONObject())
             .put("strategy_results", runCatching { Store.matrix(ctx) }.getOrElse { JSONObject() })
             .put("pins", JSONObject(Store.pins(ctx)))
+            .put("routes_manual", JSONObject(Store.routes(ctx)))
+            .put("vpn_servers", runCatching { vpnSummary(ctx) }.getOrElse { JSONObject().put("error", it.message) })
         synchronized(lock) {
             r.put("baseline", JSONArray(baseline.toString())).put("tested", JSONArray(tested.toString()))
                 .put("errors", JSONArray(errors)).put("actions", JSONArray(actions))
@@ -357,6 +359,18 @@ object Report {
             }
         }
         return r
+    }
+
+    /** VPN без ключей (ссылки содержат пароли серверов - в отчёт не попадают) */
+    private fun vpnSummary(ctx: Context): JSONObject {
+        val res = Vpn.results(ctx)
+        val best = JSONArray()
+        Vpn.best(ctx).take(6).forEach { best.put(JSONObject().put("name", it.name).put("proto", it.proto).put("source", it.source).put("ping", it.ping).put("tg", it.tg).put("kbps", it.kbps)) }
+        val errs = res.filter { !it.ok }.groupingBy { it.err.take(40) }.eachCount().entries.sortedByDescending { it.value }.take(5)
+        return JSONObject().put("available", Vpn.available(ctx)).put("ok", res.count { it.ok }).put("total", res.size)
+            .put("own", Vpn.own(ctx).size).put("subs", Vpn.subs(ctx).size).put("free", Vpn.useFree(ctx)).put("warp", Vpn.useWarp(ctx))
+            .put("tested_at", Vpn.testedAt(ctx)).put("pool", Vpn.pool(ctx).size).put("xray", Pool.vpnAlive ?: JSONObject.NULL)
+            .put("best", best).put("errors", JSONObject().apply { errs.forEach { put(it.key, it.value) } })
     }
 
     // ---------- отправка ----------

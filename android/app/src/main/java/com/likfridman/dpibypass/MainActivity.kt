@@ -168,6 +168,12 @@ class MainActivity : Activity() {
 
     fun toast(text: String) = event(JSONObject().put("t", "toast").put("text", text))
 
+    /** Серверы VPN изменились: обход включён - маршрутизатор перезапускается с новым пулом */
+    private fun afterVpnTest() {
+        if (Engine.running) safeThread { Pool.refreshVpn(this) }.start()
+        event(JSONObject().put("t", "vpnUpdated"))
+    }
+
     /** Раз в 300 мс отправляет в страницу состояние и новые строки журнала. */
     private val pusher = object : Runnable {
         override fun run() {
@@ -366,6 +372,41 @@ class MainActivity : Activity() {
                     }.start()
                     null
                 }
+                "route" -> {
+                    val (site, v) = arg.split("|", limit = 2).let { (it.getOrNull(0) ?: "") to (it.getOrNull(1) ?: "") }
+                    safeThread {
+                        // был None - меняется состав копий byedpi, нужен полный перезапуск; иначе - только маршрутизатор
+                        val wasNone = Store.pins(this@MainActivity)[site] == Engine.NONE
+                        val pl = Engine.setRoute(this@MainActivity, site, v)
+                        if (Engine.running && pl != null) {
+                            if (wasNone && v.isNotEmpty()) Pool.start(this@MainActivity, pl) else Pool.restartRouter(this@MainActivity, pl)
+                        }
+                        toast(if (v.isEmpty()) "$site: способ выбирается автоматически" else "$site: способ выбран, остальные - запасные")
+                        event(JSONObject().put("t", "stratUpdated").put("site", site))
+                    }.start()
+                    null
+                }
+                "routeCheck" -> {
+                    safeThread {
+                        val m = Pool.checkNow(arg)
+                        if (m.isEmpty()) toast("Обход не включён") else event(JSONObject().put("t", "stratUpdated").put("site", arg))
+                    }.start()
+                    null
+                }
+                "vpnAdd" -> {
+                    val msg = Vpn.addOwn(this@MainActivity, arg)
+                    toast(msg)
+                    if (msg.startsWith("Добавлено")) Vpn.testAsync(this@MainActivity, true) { m -> toast(m); afterVpnTest() }
+                    null
+                }
+                "vpnRemove" -> {
+                    Vpn.removeOwn(this@MainActivity, arg)
+                    afterVpnTest()
+                    null
+                }
+                "vpnTest" -> { Vpn.testAsync(this@MainActivity) { m -> toast(m); afterVpnTest() }; null }
+                "vpnFree" -> { Vpn.setUseFree(this@MainActivity, arg == "1"); afterVpnTest(); null }
+                "vpnWarp" -> { Vpn.setUseWarp(this@MainActivity, arg == "1"); afterVpnTest(); null }
                 "boot" -> { Store.setBoot(this@MainActivity, arg == "1"); null }
                 "bgGet" -> bgInfo()
                 "bgSet" -> bgSet(arg)
@@ -398,8 +439,9 @@ class MainActivity : Activity() {
                     if (!okLink) toast("Нужна ссылка tg://proxy?... или socks5://адрес:порт")
                     else {
                         Store.setTgProxies(this@MainActivity, (Store.tgProxies(this@MainActivity) + l).distinct())
-                        toast("Запасной прокси добавлен")
+                        toast("Прокси добавлен")
                         TgProxy.restartIfRunning(this@MainActivity)
+                        safeThread { Pool.pushTgProxies(this@MainActivity); event(JSONObject().put("t", "stratUpdated")) }.start()
                     }
                     null
                 }
@@ -448,7 +490,10 @@ class MainActivity : Activity() {
                     if (Engine.running) safeThread { Pool.plan?.let { Pool.start(this@MainActivity, it) } }.start()
                     null
                 }
-                "tgFind" -> { TgProxy.discoverAsync(this@MainActivity, true) { toast(it) }; null }
+                "tgFind" -> {
+                    TgProxy.discoverAsync(this@MainActivity, true) { m -> toast(m); event(JSONObject().put("t", "stratUpdated")) }
+                    null
+                }
                 "tgUse" -> {
                     if (arg.startsWith("tg://proxy?")) {
                         Store.setTgProxies(this@MainActivity, (Store.tgProxies(this@MainActivity) + arg).distinct())

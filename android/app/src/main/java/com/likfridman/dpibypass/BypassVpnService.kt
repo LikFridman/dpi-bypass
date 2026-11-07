@@ -130,8 +130,10 @@ class BypassVpnService : VpnService() {
             ToggleTile.update(this)
             Engine.starting = false
             Engine.log("Обход работает: ${Pool.describe()}" + (if (Pool.routerReady) "" else " (без маршрутизатора)"))
-            TgProxy.start(this, Engine.PORT)
+            // локальный прокси Telegram (для тех, кто добавил его в Telegram) - через маршрутизатор
+            TgProxy.start(this, Pool.tunnelPort())
             TgProxy.discoverAsync(this, false)
+            vpnRefresh()
             watch()
         } catch (e: Exception) {
             Report.error("сбой: ${e.javaClass.simpleName}: ${e.message}")
@@ -181,6 +183,19 @@ class BypassVpnService : VpnService() {
         return TProxyService.TProxyStartService(cfg.absolutePath, tun!!.fd)
     }
 
+    /**
+     * Серверы VPN: первая проверка - полная (WARP, бесплатные списки), дальше раз в 6 часов; после
+     * проверки маршрутизатор перезапускается с лучшими серверами.
+     */
+    private fun vpnRefresh() {
+        if (!Vpn.available(this)) return
+        val at = Vpn.testedAt(this)
+        if (at > 0 && System.currentTimeMillis() - at < 6 * 3600_000L) return
+        Vpn.testAsync(this, quick = false) { _ ->
+            if (Engine.running && !stopping) Pool.refreshVpn(this)
+        }
+    }
+
     /** Сторож: раз в минуту проверяет сайты через обход и перезапускает byedpi, если упал. */
     private fun watch() {
         var fails = 0
@@ -189,7 +204,9 @@ class BypassVpnService : VpnService() {
             // проверка тем же путём, что и трафик: через маршрутизатор (стратегии по сайтам)
             // фоновая проверка - лёгкая (начало страниц), чтобы не тратить мобильный трафик;
             // полная, с видео и файлами, - при подборе и по кнопке Ping all
-            if (!Engine.pinging) Engine.results = Engine.probeAll(Pool.tunnelPort(), Engine.activeSites(this).filter { !Store.unfixable(this).contains(it.name) }, quick = true)
+            // сервисы, которые стратегией не исправить, тоже: у них теперь есть VPN
+            val vpnOn = Vpn.pool(this).isNotEmpty()
+            if (!Engine.pinging) Engine.results = Engine.probeAll(Pool.tunnelPort(), Engine.activeSites(this).filter { vpnOn || !Store.unfixable(this).contains(it.name) }, quick = true)
             Engine.checkedAt = System.currentTimeMillis()
             val ok = Engine.results.values.count { it.ok }
             val total = Engine.results.size
@@ -216,6 +233,7 @@ class BypassVpnService : VpnService() {
                 continue
             }
             if (System.currentTimeMillis() - TgProxy.foundAt > 30 * 60_000L) TgProxy.discoverAsync(this, false)
+            vpnRefresh()
             var lastSig = networkSignature()
             for (i in 0 until 300) {
                 if (stopping) return

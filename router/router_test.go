@@ -375,3 +375,33 @@ func TestRouteTelegramKinds(t *testing.T) {
 	default:
 	}
 }
+
+// «Самый быстрый»: основной способ выбирается по задержке проверки
+func TestRouteFastest(t *testing.T) {
+	r := New(Config{Listen: "127.0.0.1:0", Groups: []Group{
+		{Name: "Telegram", Upstreams: []string{"a", "b", "c"}, Fastest: true},
+	}})
+	rt := r.routes[0]
+	rt.state("a").checked, rt.state("a").ok, rt.state("a").ping = true, true, 300
+	rt.state("b").checked, rt.state("b").ok, rt.state("b").ping = true, true, 90
+	rt.state("c").checked, rt.state("c").ok = true, false
+	if p := rt.pick(true); p[0] != "b" || p[1] != "a" || p[2] != "c" {
+		t.Fatal(p)
+	}
+	rt.state("b").badUntil = time.Now().Add(time.Minute)
+	if p := rt.pick(true); p[0] != "a" || p[len(p)-1] != "b" {
+		t.Fatal(p)
+	}
+}
+
+// Список MTProto-прокси меняется на ходу (без перезапуска маршрутизатора)
+func TestSetTGProxies(t *testing.T) {
+	r := New(Config{Listen: "127.0.0.1:0"})
+	n := r.SetTGProxies([]string{"tg://proxy?server=1.2.3.4&port=443&secret=00112233445566778899aabbccddeeff", "мусор"})
+	if n != 1 {
+		t.Fatal(n)
+	}
+	if r.SetTGProxies(nil) != 0 {
+		t.Fatal("не очистился")
+	}
+}

@@ -49,6 +49,7 @@ object Engine {
     const val UDP_PORT = 1089    // byedpi для UDP (голос Discord)
     const val ROUTER_PORT = 1090 // маршрутизатор: сюда идёт весь трафик туннеля
     const val TEST_PORT = 10801
+    const val CONTROL_PORT = 1091 // маршрутизатор: состояние и проверка способов (HTTP)
 
     val strategies = listOf(
         Strategy("b1", "disorder 1 + tlsrec по SNI", listOf("--disorder", "1", "--tlsrec", "1+s")),
@@ -518,6 +519,14 @@ object Engine {
             }
         }
         Store.setMatrix(ctx, m)
+        if (cancel) {
+            // подбор прервали (обход выключен): недоделанный результат не должен заменить рабочий план
+            val prev = Store.plan(ctx)
+            if (prev != null) {
+                log("Подбор прерван - прежний план не изменён")
+                return prev
+            }
+        }
         lastSpeeds = speeds
         for (c in cands) {
             val b = best[c.name]
@@ -648,7 +657,37 @@ object Engine {
                 .put("ping", r?.optInt("ping") ?: 0).put("stage", r?.optString("stage") ?: "").put("reason", r?.optString("reason") ?: "")
                 .put("full", r?.optBoolean("full") ?: false))
         }
+        // способы маршрута: что сейчас работает (по маршрутизатору) и что можно выбрать
+        val ri = Pool.routes()[site]
+        val ups = JSONArray()
+        ri?.optJSONArray("ups")?.let { a -> for (i in 0 until a.length()) ups.put(a.getJSONObject(i)) }
+        val isTG = site == "Telegram"
+        val vpn = JSONArray()
+        Vpn.best(ctx, isTG).take(12).forEach { r ->
+            vpn.put(JSONObject().put("id", r.id).put("name", r.name).put("proto", r.proto).put("ping", if (isTG) r.tg else r.ping)
+                .put("kbps", r.kbps).put("source", r.source).put("inPool", Vpn.portOf(ctx, r.id) != null))
+        }
         return JSONObject().put("site", site).put("current", pl?.strategyFor(site) ?: "").put("pinned", pin ?: "").put("list", arr)
+            .put("route", Store.routes(ctx)[site] ?: "").put("active", ri?.optString("active") ?: "").put("ups", ups)
+            .put("vpn", vpn).put("vpnAvailable", Vpn.available(ctx)).put("tg", isTG)
+            .put("tgProxies", TgProxy.found.length() + Store.tgProxies(ctx).size)
+    }
+
+    /** Выбрать способ для сервиса вручную (пусто - автоматически) */
+    fun setRoute(ctx: Context, site: String, v: String): Plan? {
+        var pl = Pool.plan ?: Store.plan(ctx)
+        // выбрали способ - None для сервиса больше не действует (pin снимает и выбор способа - поэтому раньше)
+        if (v.isNotEmpty() && Store.pins(ctx)[site] == NONE) pl = pin(ctx, site, null)
+        Store.setRoute(ctx, site, v.ifEmpty { null })
+        log(when {
+            v.isEmpty() -> "$site: способ - автоматически"
+            v == "vpn" -> "$site: через VPN (лучший сервер), остальные способы - запасные"
+            v.startsWith("vpn:") -> "$site: через выбранный сервер VPN, остальные способы - запасные"
+            v == "tg-ws" -> "$site: через WebSocket, остальные способы - запасные"
+            v == "tg-proxy" -> "$site: через MTProto-прокси, остальные способы - запасные"
+            else -> "$site: через обход, остальные способы - запасные"
+        })
+        return pl
     }
 
     /** Проверить одну стратегию на одном сервисе (полная проверка) */
@@ -666,6 +705,8 @@ object Engine {
     /** Закрепить стратегию за сервисом (id = null - снова автоматически) и пересобрать план */
     fun pin(ctx: Context, site: String, id: String?): Plan {
         Store.setPin(ctx, site, id)
+        // стратегия, None или «Auto» - способ, выбранный вручную, снимается (основной - обход)
+        if (Store.routes(ctx)[site] != null) Store.setRoute(ctx, site, null)
         val old = Store.plan(ctx)
         val chosen = LinkedHashMap<String, String>()
         old?.let { pl -> sites.forEach { s -> chosen[s.name] = pl.strategyFor(s.name) } }
@@ -719,11 +760,27 @@ object Engine {
         var total = 0
         val chosenSet = Store.chosenSites(ctx) != null
         val ch = chosen(ctx)
+        val routes = if (running) Pool.routes() else emptyMap()
+        val manual = Store.routes(ctx)
         for (s in sites) {
             val sid = plan?.strategyFor(s.name) ?: ""
             val isNone = pins[s.name] == NONE
             val r = JSONObject().put("name", s.name).put("strategy", if (isNone) "None" else sid + (if (s.name in pins) " 📌" else ""))
                 .put("chosen", s.name in ch).put("none", isNone)
+            // каким способом сервис идёт сейчас и что в запасе (по маршрутизатору)
+            routes[s.name]?.let { ri ->
+                val ups = ri.optJSONArray("ups") ?: JSONArray()
+                val act = ri.optString("active")
+                var via = ""
+                var backup = ""
+                for (i in 0 until ups.length()) {
+                    val u = ups.optJSONObject(i) ?: continue
+                    if (u.optString("up") == act) via = u.optString("name")
+                    else if (backup.isEmpty() && !u.optBoolean("bad")) backup = u.optString("name")
+                }
+                if (via.isNotEmpty()) r.put("via", via + (if (manual.containsKey(s.name)) " 📌" else "")).put("viaKind", kindOfUp(act))
+                if (backup.isNotEmpty()) r.put("backup", backup)
+            }
             val p = results[s.name]
             when {
                 // не выбран или None - серым «none»: обход его не трогает и не проверяет
@@ -766,7 +823,17 @@ object Engine {
         o.put("tgFound", TgProxy.found)
         o.put("tgSearching", TgProxy.isSearching)
         o.put("tgFoundAt", if (TgProxy.foundAt > 0) ago(TgProxy.foundAt) else "")
+        o.put("vpn", Vpn.stateJson(ctx))
         return o
+    }
+
+    /** Вид способа для значка на странице: bypass, vpn, ws, proxy, direct */
+    fun kindOfUp(up: String): String = when {
+        up == "direct" -> "direct"
+        up == "tg-ws" -> "ws"
+        up == "tg-proxy" -> "proxy"
+        up.substringAfterLast(':').toIntOrNull()?.let { it >= Vpn.PORT_BASE } == true -> "vpn"
+        else -> "bypass"
     }
 
     private fun ago(t: Long): String {
