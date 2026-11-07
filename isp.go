@@ -241,7 +241,10 @@ func orderedStrategies() []Strategy {
 	for i, id := range first {
 		pos[id] = i
 	}
-	list := append([]Strategy{}, strategies...)
+	list := zapret1Strategies() // наши и Flowseal
+	if z2Ready() {
+		list = append(list, strategiesZ2...) // zapret2 - в подборе вместе с обычными
+	}
 	sort.SliceStable(list, func(a, b int) bool {
 		pa, oka := pos[list[a].ID]
 		pb, okb := pos[list[b].ID]

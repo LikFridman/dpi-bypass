@@ -8,8 +8,10 @@ import (
 	"dpibypass/doh"
 	"dpibypass/speed"
 	"dpibypass/tg"
+	"dpibypass/router"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -40,7 +42,7 @@ func selftest() int {
 	}
 	cfg.Groups = []Group{{Strategy: "s1", Services: names}}
 
-	for _, st := range strategies {
+	for _, st := range zapret1Strategies() { // наши и Flowseal
 		w, err := startWinws(testArgs(st))
 		if err == nil {
 			time.Sleep(500 * time.Millisecond)
@@ -53,6 +55,60 @@ func selftest() int {
 		} else {
 			check("стратегия "+st.ID, false, err.Error())
 		}
+	}
+	// zapret2 (winws2): каждая стратегия принимается, полная конфигурация с автопереключением работает
+	check("zapret2: winws2 и библиотеки Lua на месте", z2Ready(), strings.Join(missingZapretFiles(), ","))
+	for _, st := range strategiesZ2 {
+		w, err := startWinws(testArgs(st))
+		if err == nil {
+			// настоящее соединение: ошибки в параметрах Lua видны только при обработке пакета
+			pr := probeHost("www.google.com")
+			time.Sleep(300 * time.Millisecond)
+			err2 := ""
+			tail := w.out.Tail()
+			if !w.Alive() || strings.Contains(strings.ToLower(tail), "error") {
+				err2 = tail
+			}
+			if !pr.OK() {
+				err2 += " сайт через стратегию: " + pr.Reason
+			}
+			w.Stop()
+			check("zapret2: стратегия "+st.ID, err2 == "", err2)
+		} else {
+			check("zapret2: стратегия "+st.ID, false, err.Error())
+		}
+	}
+	{
+		// все стратегии zapret2 «работали» у всех сервисов - группа получит автопереключение из трёх
+		for _, st := range strategiesZ2 {
+			for _, n := range names {
+				recordResult(st.ID, n, stratRes{OK: true, KBps: 1000})
+			}
+		}
+		zc := &Config{Best: "z1", Unfixable: map[string]string{}, Sites: map[string]string{"example.org": "z2"}, Groups: []Group{{Strategy: "z3", Services: names}}}
+		args, _ := buildArgs(zc, svcs, true)
+		hasCirc := strings.Contains(strings.Join(args, " "), "circular")
+		w, err := startCombined(zc, svcs)
+		if err != nil {
+			check("zapret2: полная конфигурация", false, err.Error())
+		} else {
+			time.Sleep(5 * time.Second)
+			alive := w.Alive()
+			detail := ""
+			if !alive {
+				detail = w.out.Tail()
+			}
+			isZ2 := strings.Contains(strings.ToLower(w.cmd.Path), "winws2")
+			if t := w.out.Tail(); strings.Contains(strings.ToLower(t), "error") {
+				alive, detail = false, t
+			}
+			check("zapret2: полная конфигурация winws2 работает 5 с (с автопереключением)", alive && isZ2 && hasCirc, fmt.Sprint(detail, " exe=", w.cmd.Path, " circular=", hasCirc))
+			res := probeAll(svcs)
+			say("%s", statusLine(svcs, res))
+			check("zapret2: сайты открываются через winws2", avgPing(res) > 0, "")
+			w.Stop()
+		}
+		resetResults()
 	}
 	combos := deepCombos()
 	for i := 0; i < len(combos); i += 7 {
@@ -170,6 +226,54 @@ func selftest() int {
 		say("[+] скорость видео YouTube: %d КБ/с, %s, %s", sp.KBps, sp.Method, sp.Host)
 	} else {
 		say("[!] скорость YouTube не измерить: %v (не критично)", err)
+	}
+	// встроенный VPN: ядро Xray, системный прокси (PAC) туда и обратно, настоящие серверы и сервис через VPN
+	{
+		xr, xerr := ensureXray()
+		check("VPN: Xray скачан и проверен (SHA-256)", xerr == nil, fmt.Sprint(xr, " ", xerr))
+		before := regQuery(inetKey, "AutoConfigURL")
+		perr := pacSet([]string{"youtube.com", "x.com"})
+		after := regQuery(inetKey, "AutoConfigURL")
+		body := ""
+		if resp, e := (&http.Client{Timeout: 5 * time.Second}).Get(after); e == nil {
+			b, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+			resp.Body.Close()
+			body = string(b)
+		}
+		check("VPN: системный прокси (PAC) включается", perr == nil && strings.HasPrefix(after, "http://"+pcPACAddr+"/") && strings.Contains(body, `"x.com"`) && strings.Contains(body, "SOCKS5 "+pcRouterAddr), fmt.Sprint(perr, " ", after))
+		pacUnset()
+		check("VPN: системный прокси вернулся как был", regQuery(inetKey, "AutoConfigURL") == before && !fileExists(pacBackupPath()), regQuery(inetKey, "AutoConfigURL"))
+		if xerr == nil {
+			runMode = modeNoVPN
+			msg := vpnTest(false)
+			st := vpnGet()
+			best := vpnBest(&st, false)
+			say("[i] VPN: %s", msg)
+			if len(best) == 0 {
+				say("[!] VPN: рабочих серверов не нашлось (не критично: бесплатные серверы чужие)")
+			} else {
+				cfg := &Config{Pins: map[string]string{}, Unfixable: map[string]string{}}
+				setRoute("X/Twitter", "vpn")
+				pcRouterStart(cfg, svcs)
+				ri := pcCheckNow("X/Twitter")["X/Twitter"]
+				var act router.UpInfo
+				for _, u := range ri.Ups {
+					if u.Active {
+						act = u
+					}
+				}
+				check("VPN: X/Twitter идёт через VPN и отвечает", ri.Active != "" && ri.Active != router.UpDirect && act.OK, fmt.Sprintf("%+v", ri))
+				// как браузер: SOCKS5 с именем сайта к маршрутизатору
+				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				r := svc.Run(ctx, svc.Site{Name: "X/Twitter", Host: "x.com", Domains: []string{"x.com", "twimg.com"}}, svc.Socks(pcRouterAddr), svc.Options{Quick: true})
+				cancel()
+				check("VPN: сайт через маршрутизатор (как браузер)", r.OK, r.Stage+" "+r.Reason)
+				check("VPN: системный прокси включён для сервисов", regQuery(inetKey, "AutoConfigURL") != "", regQuery(inetKey, "AutoConfigURL"))
+				setRoute("X/Twitter", "")
+				pcRouterStop()
+				check("VPN: после выключения прокси вернулся", regQuery(inetKey, "AutoConfigURL") == before, regQuery(inetKey, "AutoConfigURL"))
+			}
+		}
 	}
 	if b, err := json.Marshal(buildReport("test")); err == nil {
 		check("отчёт собирается", len(b) > 500, fmt.Sprintf("%d байт", len(b)))

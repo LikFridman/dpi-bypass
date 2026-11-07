@@ -209,22 +209,36 @@ func openURL(u string) error {
 	return c.Start()
 }
 
-// tgRoutes - способы связи с Telegram по порядку (пересчитываются для каждого соединения)
+// tgRoutes - способы связи с Telegram по порядку (пересчитываются для каждого соединения):
+// WebSocket (и свой Worker), MTProto-прокси, TCP напрямую, встроенный VPN; способ, выбранный
+// вручную (Sites → Telegram), - первым, остальные остаются запасными.
 func tgRoutes(px *tg.TGProxy) []tg.TGRoute {
 	base := px.BaseRoutes() // WebSocket напрямую, TCP напрямую
-	r := []tg.TGRoute{base[0]}
+	ws := []tg.TGRoute{base[0]}
 	if tgWorkerHost != "" {
-		r = append(r, px.WorkerRoute(tgWorkerHost))
+		ws = append(ws, px.WorkerRoute(tgWorkerHost))
 	}
+	var prox []tg.TGRoute
 	for _, u := range tgUpstreams() {
-		r = append(r, u.Route())
+		prox = append(prox, u.Route())
 	}
-	r = append(r, base[1])
-	if runMode == modeNoVPN {
-		return r
+	var vr []tg.TGRoute
+	for _, s := range vpnSocksForTG() {
+		vr = append(vr, tg.SocksRoute("VPN", s), px.WSSocksRoute("WebSocket через VPN", s))
 	}
-	for _, s := range vpnSocks() {
-		r = append(r, tg.SocksRoute("через VPN (SOCKS5)", s), px.WSSocksRoute("WebSocket через VPN", s))
+	if runMode != modeNoVPN {
+		for _, s := range vpnSocks() {
+			vr = append(vr, tg.SocksRoute("через VPN (SOCKS5)", s), px.WSSocksRoute("WebSocket через VPN", s))
+		}
+	}
+	var r []tg.TGRoute
+	switch route := vpnGet().Routes["Telegram"]; {
+	case route == "vpn" || strings.HasPrefix(route, "vpn:"):
+		r = append(append(append(append(r, vr...), ws...), prox...), base[1])
+	case route == "tg-proxy":
+		r = append(append(append(append(r, prox...), ws...), base[1]), vr...)
+	default:
+		r = append(append(append(append(r, ws...), prox...), base[1]), vr...)
 	}
 	return r
 }

@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-var version = "2.7.2" // при сборке на GitHub подставляется номер версии
+var version = "2.8.0" // при сборке на GitHub подставляется номер версии
 
 var (
 	baseDir string
@@ -204,6 +204,7 @@ func main() {
 	initJob()
 	loadSettings()
 	go restoreDNS() // если в прошлый раз программа завершилась аварийно с включённым зашифрованным DNS
+	go restorePACOnStart() // и с включённым системным прокси для VPN
 
 	if guiMode {
 		runGUI(cmd)

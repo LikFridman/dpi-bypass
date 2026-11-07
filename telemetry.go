@@ -307,6 +307,10 @@ func buildReport(trigger string) map[string]any {
 		rep["pins"] = cfg.Pins
 	}
 	rep["chosen_sites"] = map[string]any{"set": settings.SitesSet, "sites": settings.Sites}
+	rep["vpn_builtin"] = vpnSummaryReport() // без ключей
+	if routes := pcRoutes(); routes != nil {
+		rep["routes"] = routes
+	}
 	if pr, at := lastPing(); pr != nil {
 		rep["ping_all"] = map[string]any{"at": at.Format(time.RFC3339), "sites": pr}
 	}

@@ -109,6 +109,14 @@ func recordResult(id, svc string, r stratRes) {
 	}
 }
 
+// resetResults - забыть результаты проверок стратегий (автотест)
+func resetResults() {
+	resMu.Lock()
+	resCache = map[string]map[string]stratRes{}
+	resMu.Unlock()
+	os.Remove(resPath())
+}
+
 func fromCheck(r check.Result, full bool) stratRes {
 	return stratRes{OK: r.OK, Stage: r.Stage, Reason: r.Reason, Ping: r.Ping, KBps: r.KBps, Full: full}
 }
@@ -207,7 +215,11 @@ func siteStrategiesJSON(svc string) any {
 	if cfg != nil {
 		pinned = cfg.Pins[svc]
 	}
-	return map[string]any{"site": svc, "current": currentStrategyFor(cfg, svc), "pinned": pinned, "list": list}
+	m := map[string]any{"site": svc, "current": currentStrategyFor(cfg, svc), "pinned": pinned, "list": list}
+	for k, v := range routeSheet(svc) {
+		m[k] = v
+	}
+	return m
 }
 
 // testOneStrategy: обход ненадолго выключается, стратегия проверяется на сервисе с нагрузкой
@@ -360,6 +372,10 @@ func pinStrategy(svc, id string) {
 	if cfg == nil {
 		uiToast("Сначала включи обход, чтобы подобрались стратегии")
 		return
+	}
+	// стратегия, None или Auto - способ, выбранный вручную, снимается (основной - обход)
+	if _, has := vpnGet().Routes[svc]; has {
+		vpnUpdate(func(s *vpnState) { delete(s.Routes, svc) })
 	}
 	if cfg.Pins == nil {
 		cfg.Pins = map[string]string{}

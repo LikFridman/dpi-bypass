@@ -495,6 +495,18 @@ func startCombined(cfg *Config, svcs []Service) (*Winws, error) {
 		return nil, err
 	}
 	w, err := startWinws(args)
+	if err != nil && len(args) > 0 && args[0] == z2Marker {
+		// winws2 (zapret2) не запустился - дальше на winws (zapret1) с лучшими его стратегиями
+		warn("zapret2 (winws2) не запустился: %v - работаю на zapret1 (winws)", err)
+		z2Disabled = true
+		if args, err = buildArgs(cfg, svcs, !cfg.NoUDPX); err != nil {
+			return nil, err
+		}
+		w, err = startWinws(args)
+	}
+	if err == nil && w != nil && len(w.cmd.Args) > 0 && strings.Contains(strings.ToLower(w.cmd.Path), "winws2") {
+		info("Движок: zapret2 (winws2), автопереключение стратегий для каждого сайта при сбоях")
+	}
 	if err != nil && !cfg.NoUDPX {
 		// старые/иные сборки winws могут не знать фильтры discord/stun - пробуем без них
 		args, _ = buildArgs(cfg, svcs, false)
@@ -569,6 +581,7 @@ func runForever(cfg *Config, svcs []Service, e *engineRun) {
 		clearResults()
 		w.Stop()
 		stopTelegram()
+		pcRouterStop()
 		setStatus("Bypass off")
 	}()
 
@@ -601,6 +614,9 @@ func runForever(cfg *Config, svcs []Service, e *engineRun) {
 
 	writeDirectList(cfg, svcs)
 	startTelegram(openTGLink, cfg)
+	// встроенный VPN: маршрутизатор с запасными способами; серверы перепроверяются раз в 6 часов
+	pcRouterStart(cfg, svcs)
+	vpnMaybeRefresh()
 	// отчёт о подключении - когда Telegram успеет поработать
 	go func() {
 		time.Sleep(20 * time.Second)
@@ -696,11 +712,13 @@ func runForever(cfg *Config, svcs []Service, e *engineRun) {
 				if w, err = startCombined(cfg, svcs); err != nil {
 					bad("%v", err)
 				}
+				pcRouterStart(cfg, svcs)
 				fails = map[string]int{}
 				continue
 			}
 		}
 		tgWatch()
+		vpnMaybeRefresh()
 		if l := tgStatusLine(); l != "" && l != lastTG {
 			info("%s %s", ts(), l)
 			lastTG = l
@@ -761,6 +779,7 @@ func runForever(cfg *Config, svcs []Service, e *engineRun) {
 			if w, err = startCombined(cfg, svcs); err != nil {
 				fail("%v", err)
 			}
+			pcRouterStart(cfg, svcs)
 			if ok {
 				good("%s Обход снова работает.", ts())
 			}

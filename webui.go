@@ -42,6 +42,9 @@ type uiSiteRow struct {
 	Detail   string `json:"detail,omitempty"`
 	Chosen   bool   `json:"chosen"`
 	None     bool   `json:"none,omitempty"`
+	Via      string `json:"via,omitempty"`     // каким способом идёт сейчас (обход, VPN, WebSocket...)
+	ViaKind  string `json:"viaKind,omitempty"` // bypass | vpn | ws | proxy
+	Backup   string `json:"backup,omitempty"`  // запасной способ
 }
 
 type uiProgress struct {
@@ -82,6 +85,7 @@ type uiState struct {
 	Missing     []string    `json:"missing"`
 	Progress    uiProgress  `json:"progress"`
 	DeepActive  bool        `json:"deepActive"`
+	VPNB        uiVPN       `json:"vpnb"` // встроенный VPN
 }
 
 type uiPush struct {
@@ -367,6 +371,57 @@ func siteRows() ([]uiSiteRow, int, int, string) {
 			rows = append(rows, uiSiteRow{Name: d, Kind: k, Label: l, Strategy: "custom · " + cfg.Sites[d]})
 		}
 	}
+	// способы сервисов по маршрутизатору (встроенный VPN): что сейчас и что в запасе;
+	// сервис через VPN отвечает - зелёным, даже если напрямую он заблокирован
+	if routes := pcRoutes(); running && routes != nil {
+		for i := range rows {
+			ri, has := routes[rows[i].Name]
+			if !has || rows[i].None || !rows[i].Chosen {
+				continue
+			}
+			for _, u := range ri.Ups {
+				if u.Active {
+					rows[i].Via = u.Name
+					rows[i].ViaKind = "bypass"
+					if u.Up != "direct" {
+						rows[i].ViaKind = "vpn"
+					}
+				} else if rows[i].Backup == "" && !u.Bad {
+					rows[i].Backup = u.Name
+				}
+			}
+			if rows[i].ViaKind == "vpn" && ri.OK && ri.Ping > 0 && rows[i].Kind != "ok" {
+				if rows[i].Kind == "bad" && rows[i].Label == "none" && strings.Contains(rows[i].Detail, ": ") {
+					ok++ // уже посчитан в total как неработающий
+				} else {
+					ok++
+					total++
+				}
+				rows[i].Kind, rows[i].Label, rows[i].Detail = "ok", fmt.Sprintf("%d ms", ri.Ping), "через VPN"
+			}
+		}
+	}
+	// Telegram: свой локальный прокси - способ по выбору (или WebSocket), остальные - в запасе
+	if running {
+		tr := vpnGet().Routes["Telegram"]
+		for i := range rows {
+			if rows[i].Name != "Telegram" || rows[i].None || !rows[i].Chosen {
+				continue
+			}
+			hasVPN := len(vpnSocksForTG()) > 0
+			switch {
+			case (tr == "vpn" || strings.HasPrefix(tr, "vpn:")) && hasVPN:
+				rows[i].Via, rows[i].ViaKind, rows[i].Backup = "VPN", "vpn", "WebSocket"
+			case tr == "tg-proxy":
+				rows[i].Via, rows[i].ViaKind, rows[i].Backup = "MTProto-прокси", "proxy", "WebSocket"
+			default:
+				rows[i].Via, rows[i].ViaKind, rows[i].Backup = "WebSocket", "ws", "MTProto-прокси"
+				if hasVPN {
+					rows[i].Backup += ", VPN"
+				}
+			}
+		}
+	}
 	checked := ""
 	if running {
 		checked = ago(at)
@@ -418,6 +473,7 @@ func buildUIState() uiState {
 	}
 	st.Sites, st.SitesOK, st.SitesTotal, st.Checked = siteRows()
 	st.Pinging = pinging.Load()
+	st.VPNB = vpnUIState()
 	if t := progTotal.Load(); t > 0 {
 		st.Progress = uiProgress{Cur: int(progCur.Load()), Total: int(t), Label: st.Status}
 	}
@@ -659,6 +715,51 @@ func webCall(cmd, arg string) (any, error) {
 		if len(p) == 2 {
 			testOneStrategy(p[0], p[1])
 		}
+	case "route":
+		p := strings.SplitN(arg, "|", 2)
+		if len(p) == 2 {
+			go func() {
+				setRoute(p[0], p[1])
+				if p[1] == "" {
+					uiToast(p[0] + ": способ выбирается автоматически")
+				} else {
+					uiToast(p[0] + ": способ выбран, остальные - запасные")
+				}
+				uiEvent(map[string]any{"t": "stratUpdated", "site": p[0]})
+			}()
+		}
+	case "routeCheck":
+		go func() {
+			if arg == "Telegram" {
+				checkTelegramWays()
+			} else if pcCheckNow(arg) == nil {
+				uiToast("Способы проверяются, когда включён обход и есть серверы VPN")
+			}
+			uiEvent(map[string]any{"t": "stratUpdated", "site": arg})
+		}()
+	case "vpnAdd":
+		msg := vpnAdd(arg)
+		uiToast(msg)
+		if strings.HasPrefix(msg, "Добавлено") {
+			vpnTestAsync(true, func(m string) { uiToast(m); pcRefreshVPN(false); uiEvent(map[string]any{"t": "vpnUpdated"}) })
+		}
+	case "vpnRemove":
+		vpnRemove(arg)
+		go pcRefreshVPN(false)
+		uiEvent(map[string]any{"t": "vpnUpdated"})
+	case "vpnTest":
+		vpnTestAsync(false, func(m string) { uiToast(m); pcRefreshVPN(false); uiEvent(map[string]any{"t": "vpnUpdated"}) })
+	case "vpnFree", "vpnWarp":
+		on := arg == "1"
+		vpnUpdate(func(s *vpnState) {
+			if cmd == "vpnFree" {
+				s.NoFree = !on
+			} else {
+				s.NoWarp = !on
+			}
+		})
+		go pcRefreshVPN(false)
+		uiEvent(map[string]any{"t": "vpnUpdated"})
 	case "pin":
 		p := strings.SplitN(arg, "|", 2)
 		if len(p) == 2 {
@@ -983,6 +1084,7 @@ func webQuit() {
 		stopEngine()
 		stopActive()
 		dohStop()
+		pcRouterStop() // системный прокси - как был
 		wv.Dispatch(func() {
 			removeTrayIcon()
 			wv.Terminate()

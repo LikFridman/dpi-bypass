@@ -137,6 +137,10 @@ h2{margin:0;font-size:15px;font-weight:700}
 .stl.cur{background:rgba(111,140,255,.14);border-radius:10px}
 .stl .nm{flex:1;min-width:0}.stl .nm b{font-size:13px;display:block}.stl .nm small{font:11px var(--mono);color:var(--dim);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .stl .btn{height:30px;padding:0 10px;font-size:12px}
+.shsec{font-size:11px;font-weight:700;letter-spacing:.07em;color:var(--dim);padding:14px 6px 4px;text-transform:uppercase}
+.inp.ta{height:auto;min-height:74px;padding:10px 14px;font:12.5px/1.45 var(--mono);resize:vertical}
+.r .via{font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px;background:rgba(255,255,255,.07);color:var(--muted);white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis}
+.r .via.vpn{background:rgba(251,191,36,.14);color:var(--warnText)}.r .via.ws,.r .via.proxy{background:rgba(111,140,255,.18);color:#c2d0ff}
 .r .sg{width:170px;color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bd{font-size:11px;font-weight:600;padding:4px 10px;border-radius:999px;white-space:nowrap;transition:background .4s,color .4s}
 .bd.ok{background:rgba(52,211,153,.16);color:var(--okText)}
@@ -262,9 +266,9 @@ body.hasbg{--glass:rgba(12,14,34,.62)}
       <div class="pill" id="pill"></div>
       <button class="nv" data-p="home"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M12 3v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>Bypass</button>
       <button class="nv" data-p="sites"><svg width="18" height="18" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18" stroke="currentColor" stroke-width="1.8" fill="none"/></svg>Sites</button>
+      <button class="nv" data-p="vpn"><svg width="18" height="18" viewBox="0 0 24 24"><circle cx="8" cy="12" r="4" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M12 12h9M18 12v3.2M21 12v2.4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>VPN</button>
       <button class="nv" data-p="deep"><svg width="18" height="18" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Deep scan<span class="dotn" id="dDeep"></span></button>
       <button class="nv" data-p="dns"><svg width="18" height="18" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2.5" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>DNS</button>
-      <button class="nv" data-p="tg"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M21 4L3 11l7 2 2 7z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/></svg>Telegram</button>
       <button class="nv" data-p="def"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M12 3l8 3v5c0 5-3.4 9-8 10-4.6-1-8-5-8-10V6z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/></svg>Defender<span class="dotn" id="dDef"></span></button>
       <button class="nv" data-p="log"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M5 5h14M5 10h14M5 15h10M5 20h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Log</button>
     </div>
@@ -310,9 +314,9 @@ body.hasbg{--glass:rgba(12,14,34,.62)}
     <section class="page" id="p-sites" aria-label="Сайты">
       <div class="head st" style="--i:0"><h1>Sites</h1>
         <div class="row"><button class="btn pri" data-a="pingAll">Ping all</button><button class="btn" data-a="choose">Choose sites</button><button class="btn" data-a="tune">New sites</button><button class="btn" data-a="reselect">Re-tune</button><button class="btn" data-a="openSites">Edit list</button></div></div>
-      <div class="dim st" style="--i:1;font-size:13px">Клик по сервису — выбрать стратегию вручную: проверить любую с нагрузкой, закрепить или None (без обхода). Choose — какие сервисы нужны: подбор и Ping all только по ним.</div>
+      <div class="dim st" style="--i:1;font-size:13px">Справа - чем сервис идёт сейчас (обход, VPN, прокси); под названием - что в запасе. Клик по сервису — выбрать способ или стратегию вручную, проверить или None (без обхода). Choose — какие сервисы нужны: подбор и Ping all только по ним.</div>
       <div class="card glass st" style="--i:1;flex:1;min-height:0;display:flex;flex-direction:column">
-        <div class="r dim" style="font-size:12px"><span class="nm">Site</span><span class="sg">Strategy</span><span style="width:110px;text-align:right">Ping</span></div>
+        <div class="r dim" style="font-size:12px"><span class="nm">Site</span><span class="sg">Way / strategy</span><span style="width:110px;text-align:right">Ping</span></div>
         <div class="list" id="allSites" style="flex:1"></div>
       </div>
       <p class="dim st" style="--i:2;margin:0 4px 4px;font-size:13px">Сайты, которые начали блокироваться и которых нет в списке, обход подхватывает сам, а раз в 30 минут подбирает для каждого свою стратегию.</p>
@@ -330,30 +334,26 @@ body.hasbg{--glass:rgba(12,14,34,.62)}
       <div class="card glass st" style="--i:2;flex:1;min-height:0;display:flex;flex-direction:column"><div class="ch"><h2>Progress</h2></div><div class="log" id="deepLog"></div></div>
     </section>
 
-    <!-- TELEGRAM -->
-    <section class="page" id="p-tg" aria-label="Telegram">
-      <div class="head st" style="--i:0"><h1>Telegram</h1></div>
-      <div class="card glass pad st" style="--i:1;display:flex;flex-direction:column;gap:12px">
-        <h2>Telegram Desktop proxy</h2>
-        <div class="code" id="tgLink">Starts with the bypass</div>
-        <div class="row"><button class="btn pri" data-a="tgOpen">Open in Telegram</button><button class="btn" data-a="tgCopy">Copy link</button></div>
-        <div class="dim" id="tgStats" style="font-size:13px"></div>
+    <!-- VPN -->
+    <section class="page" id="p-vpn" aria-label="VPN">
+      <div class="head st" style="--i:0"><h1>VPN</h1><div class="row"><button class="btn pri" id="vpnTest">Test all</button></div></div>
+      <div class="card glass pad st" style="--i:1"><div class="dnsst" style="margin-top:0"><i id="vpnDot"></i><span id="vpnStat">—</span></div>
+        <div class="muted" style="margin-top:10px;font-size:13px">VPN нужен там, где обход не помогает: сервис заблокирован по IP. Такие сервисы идут через VPN сами, остальные - через обход, на полной скорости; если основной способ перестал работать, сервис переходит на запасной. Браузеры и Discord попадают в VPN через системный прокси (только домены выбранных сервисов), Telegram Desktop - через свой прокси программы. Способ для любого сервиса: Sites → клик по сервису. Работает в режиме No VPN.</div></div>
+      <div class="grid2 st" style="--i:2;flex:none">
+        <div class="card glass pad" style="display:flex;flex-direction:column;gap:12px">
+          <h2>Свой ключ или подписка</h2>
+          <textarea id="vpnIn" class="inp ta" rows="3" placeholder="vless://…  vmess://…  trojan://…  ss://…  hysteria2://…  wireguard://…  или https://ссылка-на-подписку" aria-label="Key"></textarea>
+          <div class="row"><button class="btn pri" id="vpnAdd">Add</button></div>
+          <div class="list" id="vpnOwn"></div>
+        </div>
+        <div class="card glass pad">
+          <div class="set" style="padding-top:0"><div><b>Free servers</b><span>публичные бесплатные серверы с GitHub; держат их неизвестные люди - сервер видит, на какие сайты ты ходишь (содержимое зашифровано). Свой ключ всегда в приоритете</span></div><button class="tog sm" id="togFree" aria-label="Free servers"><i></i></button></div>
+          <div class="set" style="border-bottom:0"><div><b>Cloudflare WARP</b><span>бесплатно, регистрируется само; у части провайдеров не работает</span></div><button class="tog sm" id="togWarp" aria-label="WARP"><i></i></button></div>
+        </div>
       </div>
-      <div class="card glass pad st" style="--i:2">
-        <h2 style="margin-bottom:8px">Routes</h2>
-        <ol class="steps"><li>WebSocket к web.telegram.org — через обход DPI</li><li>Свой Cloudflare Worker — если IP Telegram заблокированы</li><li>Твой запасной прокси (MTProto или SOCKS5)</li><li>Напрямую к серверам Telegram</li><li>Через VPN (режим «With VPN»)</li></ol>
-        <div class="row" style="margin-top:10px"><button class="btn" data-a="openWorker">Cloudflare Worker guide</button></div>
-      </div>
-      <div class="card glass pad st" style="--i:3;display:flex;flex-direction:column;gap:12px">
-        <div class="row" style="justify-content:space-between;align-items:center"><h2>Public proxies</h2><span><button class="btn" data-a="tgTest">Check Telegram</button> <button class="btn" data-a="tgFind" id="tgFindBtn">Find</button></span></div>
-        <div class="dim" id="tgFoundLine" style="font-size:13px">Источники: публичные списки MTProto на GitHub; каждый прокси проверяется запросом req_pq к DC2.</div>
-        <div class="list" id="tgFound"></div>
-      </div>
-      <div class="card glass pad st" style="--i:4;display:flex;flex-direction:column;gap:12px">
-        <h2>Backup proxies</h2>
-        <div class="muted">Если ничего выше не проходит, Telegram пойдёт через твой прокси. Подходят ссылки tg://proxy (в том числе FakeTLS-секреты ee…) и socks5://адрес:порт.</div>
-        <div class="row"><label for="tgUp" class="sr" style="position:absolute;left:-9999px">Proxy link</label><input id="tgUp" class="inp" placeholder="tg://proxy?server=…&amp;port=…&amp;secret=…  или  socks5://host:port"><button class="btn pri" data-a="tgAddProxy" style="height:44px">Add</button><button class="btn" data-a="tgClearProxies" style="height:44px">Clear</button></div>
-        <div class="list" id="tgProxies"></div>
+      <div class="card glass st" style="--i:3;flex:1;min-height:180px;display:flex;flex-direction:column">
+        <div class="ch"><h2>Working servers</h2><span class="dim" style="font-size:12px" id="vpnCnt"></span></div>
+        <div class="list" id="vpnList" style="flex:1"></div>
       </div>
     </section>
 
@@ -409,8 +409,8 @@ body.hasbg{--glass:rgba(12,14,34,.62)}
 </div>
 
 <div class="toasts" id="toasts"></div>
-<div class="modal" id="sheet" role="dialog" aria-modal="true" aria-label="Стратегии для сервиса"><div class="dlg glass" style="width:min(760px,94vw);max-height:84vh;display:flex;flex-direction:column;gap:10px">
-  <div class="row" style="justify-content:space-between;align-items:center"><b id="shTitle" style="font-size:17px">—</b><div class="row"><button class="btn" id="shAuto">Auto</button><button class="btn" id="shClose">Close</button></div></div>
+<div class="modal" id="sheet" role="dialog" aria-modal="true" aria-label="Способы и стратегии для сервиса"><div class="dlg glass" style="width:min(760px,94vw);max-height:84vh;display:flex;flex-direction:column;gap:10px">
+  <div class="row" style="justify-content:space-between;align-items:center"><b id="shTitle" style="font-size:17px">—</b><div class="row"><button class="btn" id="shAuto">Auto</button><button class="btn" id="shCheck">Check now</button><button class="btn" id="shClose">Close</button></div></div>
   <div class="dim" id="shInfo" style="font-size:12.5px"></div>
   <div id="shList" style="overflow-y:auto;flex:1;min-height:0"></div>
 </div></div>
@@ -465,11 +465,8 @@ $$("[data-a]").forEach(b=>b.addEventListener("click",()=>{
   const a=b.dataset.a;
   if(a==="choose")return;
   if(a==="deep")return call("deep",$("#deepIn").value.trim());
-  if(a==="tgCopy"){navigator.clipboard&&navigator.clipboard.writeText(S.tgLink||"");toast("Link copied");return}
-  if(a==="tgAddProxy"){const v=$("#tgUp").value.trim();if(!v){toast("Вставь ссылку на прокси");return}call("tgAddProxy",v);$("#tgUp").value="";return}
   call(a);
 }));
-$("#tgUp").addEventListener("keydown",e=>{if(e.key==="Enter"){const v=e.target.value.trim();if(v){call("tgAddProxy",v);e.target.value=""}}});
 $("#deepIn").addEventListener("keydown",e=>{if(e.key==="Enter")call("deep",e.target.value.trim())});
 $("#mainTog").addEventListener("click",()=>{ if(S.running||S.starting){call("off");return} if(!S.chosenSet){openChoose(true);return} call("on",selMode) });
 let chStart=false;
@@ -533,9 +530,11 @@ function siteRow(s,i,withStrat){
   const isNew=!seenSites.has(key);seenSites.add(key);
   const r=document.createElement("div");r.className="r click"+(isNew?" new":"");r.style.setProperty("--i",i);r.onclick=()=>openSheet(s.name);
   const n=document.createElement("span");n.className="nm";n.textContent=s.name;
-  if(s.detail){const d=document.createElement("small");d.textContent=s.detail;if(s.kind==="bad")d.className="e";n.appendChild(d)}
+  const det=[s.detail,s.backup?"резерв: "+s.backup:""].filter(Boolean).join(" · ");
+  if(det){const d=document.createElement("small");d.textContent=det;if(s.kind==="bad")d.className="e";n.appendChild(d)}
   r.appendChild(n);
-  if(withStrat){const g=document.createElement("span");g.className="sg";g.textContent=s.strategy||"—";r.appendChild(g)}
+  if(s.via){const g=document.createElement("span");g.className="via "+(s.viaKind||"");g.textContent=s.via;g.title=withStrat?("стратегия: "+(s.strategy||"—")):"";r.appendChild(g)}
+  else if(withStrat){const g=document.createElement("span");g.className="sg";g.textContent=s.strategy||"—";r.appendChild(g)}
   const w=document.createElement("span");w.style.cssText=withStrat?"width:110px;text-align:right":"margin-left:auto";
   const b=document.createElement("span");b.className="bd "+s.kind;b.textContent=s.label;b.dataset.k=s.name+s.kind;w.appendChild(b);r.appendChild(w);
   return r;
@@ -570,21 +569,7 @@ function apply(st){
   $("#updCard").classList.toggle("show",!!st.update);
   $("#updTitle").textContent=st.update?("v"+st.update+" available"):"";
   $("#updLine").textContent=st.update?("v"+st.update+" available · current v"+st.version):("current v"+st.version);
-  $("#tgLink").textContent=st.tgLink||"Starts with the bypass";
-  $("#tgStats").textContent=st.tgStats||"";
-  const tf=st.tgFound||[];
-  $("#tgFindBtn").disabled=!!st.tgSearching;$("#tgFindBtn").textContent=st.tgSearching?"Searching…":"Find";
-  $("#tgFoundLine").textContent=st.tgSearching?"Проверяю публичные прокси…":(st.tgFoundAt?("Updated "+st.tgFoundAt+" · Use — запасной маршрут локального прокси, Open — добавить прямо в Telegram"):"Источники: публичные списки MTProto на GitHub; каждый прокси проверяется запросом req_pq к DC2.");
-  const fj=JSON.stringify(tf);
-  if(fj!==window.__lastFound){window.__lastFound=fj;$("#tgFound").replaceChildren(...tf.map(f=>{
-    const r=document.createElement("div");r.className="r";
-    const n=document.createElement("span");n.className="nm";n.textContent=f.name;r.appendChild(n);
-    const k=document.createElement("span");k.className="sg";k.textContent=f.kind;r.appendChild(k);
-    const b=document.createElement("span");b.className="bd ok";b.textContent=f.ms+" ms";r.appendChild(b);
-    const u=document.createElement("button");u.className="btn";u.style.cssText="height:30px;padding:0 10px;font-size:12px";u.textContent="Use";u.onclick=()=>call("tgUse",f.link);r.appendChild(u);
-    const o=document.createElement("button");o.className="btn";o.style.cssText="height:30px;padding:0 10px;font-size:12px";o.textContent="Open";o.onclick=()=>call("tgOpenLink",f.link);r.appendChild(o);
-    return r}))}
-  const tp=st.tgProxies||[];$("#tgProxies").replaceChildren(...(tp.length?tp:["—"]).map(x=>{const d=document.createElement("div");d.className="r";d.textContent=x;return d}));
+  paintVPN(st.vpnb);
   $("#defPath").textContent=st.dir||"";$("#dirLine").textContent=st.dir||"";
   $("#defState").textContent=st.missing&&st.missing.length?("Не хватает файлов: "+st.missing.join(", ")+" — скорее всего их удалил Защитник."):"Все файлы winws на месте.";
   $("#dDef").classList.toggle("show",!!(st.missing&&st.missing.length));
@@ -596,6 +581,28 @@ function apply(st){
   $$("[data-a]").forEach(b=>{const a=b.dataset.a;if(["diag","reselect","tune","deep","share","reset"].includes(a))b.disabled=!!st.busy});
   $$("[data-a=pingAll]").forEach(b=>{b.disabled=!!st.pinging||!!st.busy;b.textContent=st.pinging?"Pinging…":"Ping all"});
 }
+/* ---------- VPN ---------- */
+function el(t,c,txt){const e=document.createElement(t);if(c)e.className=c;if(txt!=null)e.textContent=txt;return e}
+const SRC={own:"свой",sub:"подписка",warp:"WARP",free:"бесплатный"};
+$("#vpnTest").addEventListener("click",()=>{$("#vpnTest").textContent="Testing…";call("vpnTest")});
+$("#vpnAdd").addEventListener("click",()=>{const v=$("#vpnIn").value.trim();if(!v){toast("Вставь ключ или ссылку на подписку");return}call("vpnAdd",v);$("#vpnIn").value=""});
+$("#togFree").addEventListener("click",()=>{const v=!(S.vpnb&&S.vpnb.free);if(S.vpnb)S.vpnb.free=v;paintTog("#togFree",v);call("vpnFree",v?1:0)});
+$("#togWarp").addEventListener("click",()=>{const v=!(S.vpnb&&S.vpnb.warp);if(S.vpnb)S.vpnb.warp=v;paintTog("#togWarp",v);call("vpnWarp",v?1:0)});
+let lastVpn="";
+function paintVPN(v){if(!v)return;
+  paintTog("#togFree",!!v.free);paintTog("#togWarp",!!v.warp);
+  $("#vpnTest").disabled=!!v.testing;$("#vpnTest").textContent=v.testing?"Testing…":"Test all";
+  $("#vpnDot").className=v.ok>0?"ok":"";
+  $("#vpnStat").textContent=v.testing?("Проверяю: "+(v.progress||"…")):v.testedAt?("Работают "+v.ok+" из "+v.total+" · проверено "+v.tested+(v.xray===true?" · VPN включён":"")+(v.pac?" · системный прокси для сервисов":"")):"Серверы ещё не проверялись - нажми Test all (первый раз скачается ядро Xray, ~15 МБ)";
+  $("#vpnCnt").textContent=v.ok?v.ok+" ok":"";
+  const sig=JSON.stringify([v.list,v.subs]);if(sig===lastVpn)return;lastVpn=sig;
+  const own=(v.list||[]).filter(x=>x.own),rest=(v.list||[]).filter(x=>!x.own);
+  const srow=(x,del)=>{const r=el("div","r");const n=el("span","nm",x.name||x.proto);n.appendChild(el("small",null,(SRC[x.source]||x.source)+" · "+x.proto+(x.pool?" · в работе":"")+(x.ok&&x.kbps?" · "+kb(x.kbps):"")+(x.ok&&x.tg?" · Telegram "+x.tg+" ms":"")+(!x.ok&&x.err?" · "+x.err:"")));r.appendChild(n);
+    const nc=!x.ok&&x.err==="не проверен";r.appendChild(el("span","bd "+(x.ok?"ok":nc?"idle":"bad"),x.ok?x.ping+" ms":nc?"—":"none"));
+    if(del){const b=el("button","btn","Remove");b.style.cssText="height:30px;padding:0 10px;font-size:12px";b.onclick=()=>call("vpnRemove",x.id);r.appendChild(b)}return r};
+  const subs=(v.subs||[]).map(u=>{const r=el("div","r");const n=el("span","nm",u);n.appendChild(el("small",null,"подписка"));r.appendChild(n);const b=el("button","btn","Remove");b.style.cssText="height:30px;padding:0 10px;font-size:12px";b.onclick=()=>call("vpnRemove",u);r.appendChild(b);return r});
+  $("#vpnOwn").replaceChildren(...own.map(x=>srow(x,true)),...subs);
+  $("#vpnList").replaceChildren(...(rest.length?rest.map(x=>srow(x,false)):[el("div","r dim",v.testedAt?"Рабочих бесплатных серверов нет":"Нажми Test all")]))}
 /* фильтр журнала: Summary скрывает построчный перебор стратегий и подробности */
 let logLv="sum";
 function lvOf(l){if(/^\s+\[\s*\d+\/\d+\]|^\s{4,}|^byedpi|^winws:|^\s*Telegram: (из|список)/.test(l))return"det";if(/^\[-\]|^\[!\]|ошибк|не удалось|FAIL|✗/i.test(l))return"err";return"sum"}
@@ -605,19 +612,38 @@ $$("[data-lv]").forEach(c=>c.addEventListener("click",()=>{logLv=c.dataset.lv;$$
 let shSite="";
 function openSheet(site){shSite=site;$("#shTitle").textContent=site;$("#sheet").classList.add("on");loadSheet()}
 $("#shClose").onclick=()=>{$("#sheet").classList.remove("on");shSite=""};
-$("#shAuto").onclick=()=>call("pin",shSite+"|");
+$("#shAuto").onclick=()=>call(shSite==="Telegram"?"route":"pin",shSite+"|");
 function kb(k){return k>=1024?(k/1024).toFixed(1)+" MB/s":k+" KB/s"}
-function loadSheet(){call("siteStrategies",shSite).then(d=>{if(!d)return;
-  $("#shInfo").textContent=(d.pinned==="none"?"Без обхода (None)":d.pinned?"Закреплена вручную: "+d.pinned:"Автоматический выбор")+(d.current?" · сейчас: "+d.current:"")+" · Test выключает обход на несколько секунд · ~ быстрая проверка, без ~ полная";
-  const nr=document.createElement("div");nr.className="stl"+(d.pinned==="none"?" cur":"");
-  const nn=document.createElement("div");nn.className="nm";const nb=document.createElement("b");nb.textContent="None · без обхода";const ns=document.createElement("small");ns.textContent="сервис идёт напрямую, как без программы; в подборе не участвует";nn.append(nb,ns);nr.appendChild(nn);
-  const nu=document.createElement("button");nu.className="btn"+(d.pinned==="none"?" pri":"");nu.textContent="Use";nu.onclick=()=>call("pin",shSite+"|none");nr.appendChild(nu);
-  $("#shList").replaceChildren(nr,...(d.list||[]).map(x=>{const r=document.createElement("div");r.className="stl"+(x.id===d.current?" cur":"");
-    const n=document.createElement("div");n.className="nm";const b=document.createElement("b");b.textContent=x.id+" · "+x.name;const sm=document.createElement("small");sm.textContent=x.args+(x.reason&&!x.ok?" — "+x.reason:"");n.append(b,sm);r.appendChild(n);
-    const bd=document.createElement("span");bd.className="bd "+(!x.tested?"idle":x.ok?"ok":"bad");bd.textContent=!x.tested?"—":x.ok?(x.kbps?kb(x.kbps):"ok")+(x.full?"":" ~"):"✗ "+(x.stage||"");r.appendChild(bd);
-    const tb=document.createElement("button");tb.className="btn";tb.textContent="Test";tb.onclick=()=>{tb.textContent="…";call("testStrategy",shSite+"|"+x.id)};r.appendChild(tb);
-    const ub=document.createElement("button");ub.className="btn"+(x.id===d.pinned?" pri":"");ub.textContent="Use";ub.onclick=()=>call("pin",shSite+"|"+x.id);r.appendChild(ub);
-    return r}))})}
+$("#shCheck").onclick=()=>{$("#shCheck").textContent="Checking…";call("routeCheck",shSite)};
+setInterval(()=>{if(shSite&&!(document.activeElement&&document.activeElement.closest&&document.activeElement.closest("#sheet")&&document.activeElement.tagName==="INPUT"))loadSheet()},5000);
+function mRow(title,sub,st,cur,onUse,extra){const r=el("div","stl"+(cur?" cur":""));const n=el("div","nm");n.append(el("b",null,title),el("small",null,sub));n.lastChild.title=sub;r.appendChild(n);
+  r.appendChild(el("span","bd "+st[1],st[0]));(extra||[]).forEach(x=>r.appendChild(x));if(onUse){const u=el("button","btn"+(cur?" pri":""),"Use");u.onclick=onUse;r.appendChild(u)}return r}
+function upSt(u){if(!u)return["—","idle"];if(u.bad)return["✗ "+(u.err||"сбой").slice(0,28),"bad"];if(u.age==null||u.age<0)return[u.active?"active":"not checked","idle"];return u.ok?[u.ping+" ms"+(u.active?" · active":""),"ok"]:["✗ "+(u.err||"").slice(0,28),"bad"]}
+function sbtn(t,f){const b=el("button","btn",t);b.onclick=f;return b}
+function loadSheet(){call("siteStrategies",shSite).then(d=>{if(!d)return;$("#shCheck").textContent="Check now";
+  const ups=d.ups||[],act=ups.find(u=>u.active),route=d.route||"";
+  const isVpnUp=u=>/^127\.0\.0\.1:(\d+)$/.test(u.up)&&+u.up.split(":").pop()>=2081,isBp=u=>u.up==="direct";
+  const bk=ups.filter(u=>!u.active&&!u.bad).map(u=>u.name)[0];
+  $("#shInfo").textContent=(d.pinned==="none"?"Без обхода (None) - напрямую":act?"Сейчас: "+act.name+(bk?" · резерв: "+bk:""):"Способы появятся, когда обход включён (с серверами VPN - режим No VPN)")+(route?" · способ выбран вручную":" · способ выбирается автоматически")+" · Test выключает обход на несколько секунд";
+  const out=[el("div","shsec","Способ")];
+  if(d.tg){
+    out.push(mRow("WebSocket","Telegram через web.telegram.org (как веб-версия) - маскирует обход, без сторонних серверов",upSt(ups.find(u=>u.up==="tg-ws")),route===""||route==="tg-ws",()=>call("route",shSite+"|tg-ws")));
+    out.push(mRow("MTProto-прокси","публичные прокси с GitHub и свои: "+d.tgProxies,upSt(ups.find(u=>u.up==="tg-proxy")),route==="tg-proxy",()=>call("route",shSite+"|tg-proxy"),[sbtn("Find",e=>{e.target.textContent="…";call("tgFind")})]));
+  } else out.push(mRow("Обход DPI","winws - без сервера, полная скорость",upSt(ups.find(isBp)),route==="bypass"||(!route&&act&&isBp(act)),()=>call("route",shSite+"|bypass")));
+  if(d.vpnAvailable)out.push(mRow("VPN - лучший сервер","для блоков по IP; сервер выбирается по задержке, остальные в запасе",upSt(ups.find(isVpnUp)),route==="vpn",()=>call("route",shSite+"|vpn")));
+  if(d.tg){
+    out.push(el("div","shsec","Telegram Desktop"));
+    out.push(mRow("Прокси программы",d.tgLink||"запускается вместе с обходом",[d.tgLink?"on":"off",d.tgLink?"ok":"idle"],false,null,[sbtn("Open in Telegram",()=>call("tgOpen")),sbtn("Copy link",()=>{navigator.clipboard&&navigator.clipboard.writeText(d.tgLink||"");toast("Link copied")})]));
+    const add=el("div","stl");const inp=el("input","inp");inp.placeholder="свой прокси: tg://proxy?server=… или socks5://host:port";inp.style.height="34px";
+    add.append(inp,sbtn("Add",()=>{const v=inp.value.trim();if(!v){toast("Вставь ссылку на прокси");return}call("tgAddProxy",v);inp.value=""}),sbtn("Worker guide",()=>call("openWorker")));out.push(add)}
+  if(d.vpnAvailable&&(d.vpn||[]).length){out.push(el("div","shsec","Серверы VPN"));
+    d.vpn.forEach(v=>out.push(mRow(v.name||v.proto,(SRC[v.source]||v.source)+" · "+v.proto+(v.kbps?" · "+kb(v.kbps):"")+(v.inPool?"":" · запустится при выборе"),[v.ping+" ms","ok"],route==="vpn:"+v.id,()=>call("route",shSite+"|vpn:"+v.id))))}
+  if(d.tg){$("#shList").replaceChildren(...out);return}
+  out.push(el("div","shsec","Стратегии обхода"));
+  out.push(mRow("None · без обхода","сервис идёт напрямую, как без программы; в подборе не участвует",["direct","idle"],d.pinned==="none",()=>call("pin",shSite+"|none")));
+  (d.list||[]).forEach(x=>{const tb=sbtn("Test",()=>{tb.textContent="…";call("testStrategy",shSite+"|"+x.id)});
+    out.push(mRow(x.id+" · "+x.name,x.args+(x.reason&&!x.ok?" — "+x.reason:"")+(x.id===d.current?" · сейчас в плане":""),[!x.tested?"—":x.ok?(x.kbps?kb(x.kbps):"ok")+(x.full?"":" ~"):"✗ "+(x.stage||""),!x.tested?"idle":x.ok?"ok":"bad"],x.id===d.pinned,()=>call("pin",shSite+"|"+x.id),[tb]))});
+  $("#shList").replaceChildren(...out)})}
 function cls(l){if(/^\[-\]|ошибк|не удалось|FAIL/i.test(l))return"e";if(/^\[!\]/.test(l))return"w";if(/^\[\+\]/.test(l))return"g";if(/^== /.test(l))return"h";return""}
 function addLogs(lines){
   if(!lines||!lines.length)return;
@@ -658,7 +684,7 @@ window.__push=function(m){
   if(m.state)apply(m.state);
   if(m.logs)addLogs(m.logs);
   if(m.state&&m.state.needConsent&&!agrOpen&&!agrDone)showAgreement(true);
-  (m.events||[]).forEach(e=>{if(e.t==="stratUpdated"&&shSite)loadSheet();if(e.t==="consent")showAgreement(true);if(e.t==="toast")toast(e.text);if(e.t==="confirm")confirmBox(e.id,e.text);if(e.t==="go")go(e.p);if(e.t==="choose")openChoose(false);if(e.t==="dnsPing"){dnsPing={};(e.res||[]).forEach(x=>dnsPing[x.id]=x);$("#dnsTest").textContent="Test all";paintDNS(S)}});
+  (m.events||[]).forEach(e=>{if((e.t==="stratUpdated"||e.t==="vpnUpdated")&&shSite)loadSheet();if(e.t==="vpnUpdated")lastVpn="";if(e.t==="consent")showAgreement(true);if(e.t==="toast")toast(e.text);if(e.t==="confirm")confirmBox(e.id,e.text);if(e.t==="go")go(e.p);if(e.t==="choose")openChoose(false);if(e.t==="dnsPing"){dnsPing={};(e.res||[]).forEach(x=>dnsPing[x.id]=x);$("#dnsTest").textContent="Test all";paintDNS(S)}});
 };
 window.addEventListener("error",e=>call("jsError",(e.message||"")+" @"+(e.lineno||"")));
 window.addEventListener("resize",movePill);

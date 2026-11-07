@@ -71,6 +71,18 @@ VpnService (весь трафик, v4+v6; приложение исключен�
 
 Маршрутизатор и Telegram-прокси — одно Go-ядро (`libtgproxy.so`). 36 стратегий byedpi, первыми идут варианты без подмены TTL: у мобильных операторов fake-пакеты с малым TTL часто не доходят до DPI. В Settings: Block QUIC, Discord voice (UDP), режим Telegram `auto` / `ws` / `direct`. Одновременно активен только один VPN, поэтому обход замещает другой VPN-клиент.
 
+## Способы для сервисов и встроенный VPN
+
+У каждого сервиса — основной способ и запасные; маршрутизатор (общее Go-ядро, [`router/`](router)) ведёт соединения основным, а при сбоях (3 неудачных соединения подряд или 2 неудачные собственные проверки раз в 30 с) переводит сервис на запасной и возвращает, когда основной снова работает. Способы: **обход DPI** (byedpi на Android, winws/winws2 на Windows), **VPN** (ядро [Xray](https://github.com/XTLS/Xray-core): vless (Reality, WS, xhttp), vmess, trojan, shadowsocks, hysteria2, WireGuard), для Telegram ещё **WebSocket** и **MTProto-прокси**, **напрямую** (None). Сервисы, заблокированные по IP, сами идут через VPN; выбрать способ вручную — Sites → сервис.
+
+Серверы VPN: свой ключ или подписка, бесплатный Cloudflare WARP (регистрируется сам), бесплатные публичные списки ([igareck/vpn-configs-for-russia](https://github.com/igareck/vpn-configs-for-russia); переопределяются `vpn_sources` в `update.json`). Каждый сервер проверяется по-настоящему (запрос к сайту, MTProto к Telegram, скорость), лучшие держит Xray на локальных SOCKS-портах. Пинг сервиса — время TCP + TLS через тот способ, которым сервис идёт сейчас; ClientHello проверок — как у Chrome ([uTLS](https://github.com/refraction-networking/utls)).
+
+На Windows браузеры и Discord попадают в маршрутизатор через системный PAC (только домены выбранных сервисов, при отказе — напрямую; настройки возвращаются при выключении и после аварийного завершения), Telegram Desktop — через локальный прокси программы.
+
+## zapret2
+
+На Windows в подборе вместе с обычными стратегиями участвуют стратегии [zapret2](https://github.com/bol-van/zapret2) (winws2, приёмы на Lua) и стратегии [Flowseal/zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube). Если основная стратегия — из zapret2, конфигурация собирается для winws2 с оркестратором `circular`: у каждой группы до трёх подобранных стратегий, и при повторных отправках ClientHello (DPI глушит) winws2 сам переходит к следующей для этого сайта. Если winws2 не запускается — остаётся winws. Сборка zapret-win-bundle проверяется при каждом запуске и обновляется.
+
 ## Telegram
 
 Локальный MTProto-прокси (obfuscated2, секрет `dd`). Маршруты по порядку, сломанный маршрут уходит в конец очереди на 3 мин:
@@ -108,6 +120,11 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o libtgproxy.so ./cmd/tgproxy
 - [byedpi](https://github.com/hufrea/byedpi) — hufrea
 - [hev-socks5-tunnel](https://github.com/heiher/hev-socks5-tunnel) — heiher
 - [tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy) — Flowseal (идея WS-транспорта для Telegram; здесь своя реализация)
+- [zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube) — Flowseal (стратегии и образцы ClientHello, MIT)
+- [zapret2](https://github.com/bol-van/zapret2) — bol-van
+- [Xray-core](https://github.com/XTLS/Xray-core) — XTLS (ядро VPN)
+- [uTLS](https://github.com/refraction-networking/utls) — refraction-networking
+- [vpn-configs-for-russia](https://github.com/igareck/vpn-configs-for-russia) — igareck (бесплатные серверы)
 - [go-webview2](https://github.com/jchv/go-webview2) — jchv
 - [goversioninfo](https://github.com/josephspurrier/goversioninfo) — josephspurrier
 - авторы публичных списков MTProto-прокси (см. раздел Telegram)

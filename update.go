@@ -34,6 +34,8 @@ type remoteUpdate struct {
 	Presets map[string][]string `json:"presets"`
 	// серверы зашифрованного DNS для вкладки DNS (новые появляются без переустановки)
 	DNSProviders []doh.Provider `json:"dns_providers"`
+	// списки бесплатных серверов VPN (подписки vless/ss с GitHub)
+	VPNSources []string `json:"vpn_sources"`
 }
 
 func updateCache() string { return filepath.Join(dataDir, "update.json") }
@@ -153,6 +155,9 @@ func applyUpdates() {
 		}
 	}
 	doh.SetProviders(ru.DNSProviders)
+	if len(ru.VPNSources) > 0 {
+		setVPNSources(ru.VPNSources)
+	}
 	msg := fmt.Sprintf("Обновления (%s, от %s): стратегий +%d", src, firstNonEmpty(ru.Updated, "?"), len(added))
 	if newSvc > 0 {
 		msg += fmt.Sprintf(", новых сервисов +%d", newSvc)

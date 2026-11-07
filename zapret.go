@@ -53,6 +53,7 @@ func ensureZapret() error {
 	if local := filepath.Join(baseDir, "zapret-winws"); fileExists(filepath.Join(local, "winws.exe")) {
 		zapDir = local
 	}
+	ensureZ2Files()
 	miss := missingZapretFiles()
 	if len(miss) == 0 {
 		return nil
@@ -138,6 +139,18 @@ func strategyByID(id string) (Strategy, bool) {
 			return s, true
 		}
 	}
+	for _, s := range strategiesZ2 {
+		if s.ID == id {
+			return s, true
+		}
+	}
+	if len(id) > 1 && id[0] == 'f' {
+		for _, s := range fsList() {
+			if s.ID == id {
+				return s, true
+			}
+		}
+	}
 	return Strategy{}, false
 }
 
@@ -152,6 +165,9 @@ func exclArgs() []string {
 }
 
 func testArgs(s Strategy) []string {
+	if isZ2(s) {
+		return testArgsZ2(s)
+	}
 	args := append(ifaceArg(curVPN), "--wf-tcp=443", "--filter-tcp=443")
 	args = append(args, exclArgs()...)
 	return append(args, s.Args...)
@@ -159,6 +175,9 @@ func testArgs(s Strategy) []string {
 
 // buildArgs собирает итоговую конфигурацию winws из нескольких профилей.
 func buildArgs(cfg *Config, svcs []Service, withUDPExtras bool) ([]string, error) {
+	if useZ2(cfg) {
+		return buildArgsZ2(cfg, svcs, withUDPExtras)
+	}
 	listDir := filepath.Join(dataDir, "lists")
 	os.MkdirAll(listDir, 0755)
 	byName := map[string]Service{}
@@ -184,6 +203,9 @@ func buildArgs(cfg *Config, svcs []Service, withUDPExtras bool) ([]string, error
 		if !ok {
 			continue
 		}
+		if isZ2(st) {
+			st = z1Pick(g.Services) // winws2 недоступен - лучшая из zapret1 для этих сервисов
+		}
 		var doms []string
 		for _, n := range g.Services {
 			doms = append(doms, byName[n].Domains...)
@@ -203,13 +225,16 @@ func buildArgs(cfg *Config, svcs []Service, withUDPExtras bool) ([]string, error
 
 	// универсальный профиль: сайты не из списка, которые начнут отваливаться, добавятся сами
 	best, ok := strategyByID(cfg.Best)
-	if !ok {
-		best = strategies[0]
+	if !ok || isZ2(best) {
+		best = z1Pick(cfg.Expected)
 	}
 	// свои стратегии для отдельных сайтов (подбор для автосписка, глубокая проверка)
 	bySt := map[string][]string{}
 	for d, id := range cfg.Sites {
-		if _, ok := strategyByID(id); ok {
+		if st, ok := strategyByID(id); ok {
+			if isZ2(st) {
+				id = best.ID
+			}
 			bySt[id] = append(bySt[id], d)
 		}
 	}
@@ -316,8 +341,12 @@ func startWinws(args []string) (*Winws, error) {
 		// без привязки к настоящему адаптеру winws полез бы внутрь VPN-туннеля и сломал его
 		return nil, fmt.Errorf("включён VPN-туннель, а физический адаптер не найден - обход не запускаю, чтобы не сломать VPN")
 	}
+	exe := "winws.exe"
+	if len(args) > 0 && args[0] == z2Marker {
+		exe, args = "winws2.exe", args[1:]
+	}
 	w := &Winws{args: args, out: &ringBuf{}, done: make(chan struct{})}
-	w.cmd = exec.Command(zp("winws.exe"), args...)
+	w.cmd = exec.Command(zp(exe), args...)
 	w.cmd.Dir = zapDir
 	w.cmd.Stdout, w.cmd.Stderr = w.out, w.out
 	w.cmd.SysProcAttr = hiddenProcAttr()
@@ -493,7 +522,8 @@ func updateZapret() (string, error) {
 	os.RemoveAll(tmp)
 	defer os.RemoveAll(tmp)
 	cl.Timeout = 90 * time.Second
-	for _, f := range zapretFiles {
+	all := append(append([]string{}, zapretFiles...), z2Files...)
+	for _, f := range all {
 		var err error
 		for _, base := range []string{
 			"https://raw.githubusercontent.com/bol-van/zapret-win-bundle/" + rev + "/zapret-winws/",
@@ -508,7 +538,7 @@ func updateZapret() (string, error) {
 		}
 	}
 	changed := 0
-	for _, f := range zapretFiles {
+	for _, f := range all {
 		nf := filepath.Join(tmp, filepath.FromSlash(f))
 		nb, _ := os.ReadFile(nf)
 		ob, _ := os.ReadFile(zp(f))

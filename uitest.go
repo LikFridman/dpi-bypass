@@ -147,15 +147,18 @@ func demoState(st uiState) uiState {
 	st.TgProxies = []string{"MTProto 203.0.113.7:443 (FakeTLS)"}
 	st.Update = "1.5"
 	st.Sites = []uiSiteRow{
-		{"YouTube", "ok", "38 ms", "s1 · shared", "4.2 MB/s · видео rr1---sn.googlevideo.com", true, false},
-		{"Discord", "ok", "52 ms", "s1 · shared", "1.8 MB/s · файл discord.com", true, false},
-		{"Instagram", "ok", "61 ms", "s1 · shared", "900 KB/s · файл static.cdninstagram.com", true, false},
-		{"X/Twitter", "bad", "none", "s1 · shared", "throttle: обрыв после 16 КБ: замедление / обрыв по объёму (ТСПУ)", true, false},
-		{"Rutracker", "custom", "45 ms", "custom · c41872", "", true, false},
-		{"LinkedIn", "ok", "88 ms", "s1 · shared", "1.1 MB/s · файл static.licdn.com", true, false},
-		{"Roblox", "ok", "112 ms", "u-u2 · shared", "", true, false},
-		{"Telegram", "vpn", "via VPN", "IP blocked", "", true, false},
+		{Name: "YouTube", Kind: "ok", Label: "38 ms", Strategy: "s1 · shared", Detail: "4.2 MB/s · видео rr1---sn.googlevideo.com", Chosen: true, Via: "обход (winws)", ViaKind: "bypass", Backup: "VPN · NL Amsterdam"},
+		{Name: "Discord", Kind: "ok", Label: "52 ms", Strategy: "s1 · shared", Detail: "1.8 MB/s · файл discord.com", Chosen: true, Via: "обход (winws)", ViaKind: "bypass", Backup: "VPN · NL Amsterdam"},
+		{Name: "Instagram", Kind: "ok", Label: "161 ms", Strategy: "s1 · shared", Detail: "через VPN", Chosen: true, Via: "VPN · NL Amsterdam", ViaKind: "vpn", Backup: "обход (winws)"},
+		{Name: "X/Twitter", Kind: "bad", Label: "none", Strategy: "s1 · shared", Detail: "throttle: обрыв после 16 КБ: замедление / обрыв по объёму (ТСПУ)", Chosen: true},
+		{Name: "Rutracker", Kind: "custom", Label: "45 ms", Strategy: "custom · c41872", Chosen: true},
+		{Name: "LinkedIn", Kind: "ok", Label: "88 ms", Strategy: "s1 · shared", Detail: "1.1 MB/s · файл static.licdn.com", Chosen: true},
+		{Name: "Roblox", Kind: "ok", Label: "112 ms", Strategy: "u-u2 · shared", Chosen: true},
+		{Name: "Telegram", Kind: "ok", Label: "140 ms", Strategy: "IP blocked", Chosen: true, Via: "WebSocket", ViaKind: "ws", Backup: "MTProto-прокси, VPN"},
 	}
+	st.VPNB = uiVPN{Available: true, Free: true, Warp: true, OK: 14, Total: 80, TestedAt: 1, Tested: "3 min ago", Xray: true, PAC: true,
+		List: []uiVPNRow{{ID: "a1b2c3d4e5", Name: "my server", Proto: "vless", Source: "own", OK: true, Ping: 74, TG: 96, KBps: 6200, Pool: true, Own: true},
+			{ID: "f6a7b8c9d0", Name: "NL Amsterdam", Proto: "vless", Source: "free", OK: true, Ping: 161, TG: 180, KBps: 2100, Pool: true}}}
 	st.SitesOK, st.SitesTotal = 7, 7
 	st.Missing = nil
 	return st
@@ -187,9 +190,9 @@ func runUITest() {
 
 	// проверки внутри страницы
 	evalJS(`(function(){var e=[];var q=function(s){return document.querySelectorAll(s).length};
-	if(q('.page')!==7)e.push('разделов '+q('.page'));
-	if(q('.nv')!==7)e.push('кнопок меню '+q('.nv'));
-	['home','sites','deep','tg','def','log','set'].forEach(function(p){ui.go(p);if(!document.querySelector('#p-'+p+'.on'))e.push('не открылся раздел '+p)});
+	if(q('.page')!==8)e.push('разделов '+q('.page'));
+	if(q('.nv')!==8)e.push('кнопок меню '+q('.nv'));
+	['home','sites','vpn','deep','dns','def','log','set'].forEach(function(p){ui.go(p);if(!document.querySelector('#p-'+p+'.on'))e.push('не открылся раздел '+p)});
 	ui.go('home');
 	if(!/^v\d/.test(document.querySelector("#ver").textContent))e.push("нет версии");
 	if(document.querySelector('#fullLog').childElementCount<1)e.push('журнал пуст');
@@ -212,7 +215,7 @@ func runUITest() {
 		{"home", "ui.go('home')"},
 		{"sites", "ui.go('sites')"},
 		{"deep", "ui.go('deep');document.querySelector('#deepIn').value='rutracker.org'"},
-		{"telegram", "ui.go('tg')"},
+		{"vpn", "ui.go('vpn')"},
 		{"settings", "ui.go('set')"},
 		{"confirm", "ui.go('home');window.__push({events:[{t:'confirm',id:0,text:'Найден VPN: Happ (TUN).\\nЗакрыть его?'}]})"},
 	}
