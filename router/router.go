@@ -52,7 +52,7 @@ type Config struct {
 // Stats - счётчики для отчётов
 type Stats struct {
 	TCP, UDP, QUICDropped, TGDirect, TGWS, Errors atomic.Int64
-	DNS, DNSFail                                  atomic.Int64
+	DNS, DNSFail, AAAAEmpty, IPv6Refused          atomic.Int64
 	ByGroup                                       sync.Map // upstream -> *atomic.Int64
 }
 
@@ -66,6 +66,41 @@ type Router struct {
 	tgFail  sync.Map // -> *failCount
 	dns     *doh.Resolver
 	udpNets []*net.IPNet
+
+	v6mu    sync.Mutex
+	v6ok    bool
+	v6at    time.Time
+	V6Check func() bool // проверка IPv6 у сети (для тестов подменяется)
+}
+
+// TunnelDNS - адрес DNS внутри туннеля (Android: DNS-сервер VPN при включённом DoH)
+const TunnelDNS = "198.18.0.2"
+
+// IPv6 - есть ли у настоящей сети выход в интернет по IPv6 (проверка раз в 15 с). Маршрутизатор
+// работает в приложении, исключённом из своего VPN, поэтому видит таблицу маршрутов самой сети.
+func (r *Router) IPv6() bool {
+	r.v6mu.Lock()
+	defer r.v6mu.Unlock()
+	if time.Since(r.v6at) < 15*time.Second {
+		return r.v6ok
+	}
+	chk := r.V6Check
+	if chk == nil {
+		chk = HasIPv6
+	}
+	r.v6ok, r.v6at = chk(), time.Now()
+	return r.v6ok
+}
+
+// HasIPv6 - есть ли маршрут в интернет по IPv6 с глобальным адресом (UDP «connect» пакетов не шлёт)
+func HasIPv6() bool {
+	c, err := net.DialUDP("udp6", nil, &net.UDPAddr{IP: net.ParseIP("2001:4860:4860::8888"), Port: 53})
+	if err != nil {
+		return false
+	}
+	defer c.Close()
+	ip := c.LocalAddr().(*net.UDPAddr).IP
+	return ip.IsGlobalUnicast() && !ip.IsPrivate()
 }
 
 type failCount struct {
@@ -206,10 +241,30 @@ func (r *Router) handle(c net.Conn) {
 
 func (r *Router) handleConnect(c net.Conn, target string) {
 	r.St.TCP.Add(1)
+	host, port, _ := net.SplitHostPort(target)
+	ip := net.ParseIP(host)
+	// IPv6 там, где у сети его нет: сразу отказ. Иначе приложение считает соединение установленным
+	// (ответ ниже даётся до подключения к серверу), шлёт запрос и получает обрыв - YouTube и другие
+	// приложения не переходят на IPv4 и «не грузят», хотя проверки проходят
+	if ip != nil && ip.To4() == nil && !r.IPv6() {
+		r.St.IPv6Refused.Add(1)
+		c.Write([]byte{5, 4, 0, 1, 0, 0, 0, 0, 0, 0}) // host unreachable
+		return
+	}
+	// адрес DNS внутри туннеля: DNS по TCP - через зашифрованный DNS; DoT (853) там нет - сразу отказ,
+	// чтобы «Частный DNS» не ждал тайм-аута
+	if host == TunnelDNS {
+		if port == "53" && r.dns != nil {
+			c.Write([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
+			c.SetDeadline(time.Time{})
+			r.serveTCPDNS(c)
+			return
+		}
+		c.Write([]byte{5, 5, 0, 1, 0, 0, 0, 0, 0, 0}) // connection refused
+		return
+	}
 	// отвечаем сразу, чтобы прочитать начало соединения и понять, что это за сайт
 	c.Write([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
-	host, _, _ := net.SplitHostPort(target)
-	ip := net.ParseIP(host)
 
 	first := make([]byte, 0, 4096)
 	buf := make([]byte, 16<<10)

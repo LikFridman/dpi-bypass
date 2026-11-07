@@ -325,7 +325,8 @@ func runRouter(path string) {
 		})
 		st, _ := json.Marshal(map[string]any{"tcp": r.St.TCP.Load(), "udp": r.St.UDP.Load(), "quic_dropped": r.St.QUICDropped.Load(),
 			"tg_direct": r.St.TGDirect.Load(), "tg_ws": r.St.TGWS.Load(), "errors": r.St.Errors.Load(), "groups": groups,
-			"dns": r.St.DNS.Load(), "dns_fail": r.St.DNSFail.Load(), "doh": r.DNSStats()})
+			"dns": r.St.DNS.Load(), "dns_fail": r.St.DNSFail.Load(), "doh": r.DNSStats(),
+			"ipv6": r.IPv6(), "aaaa_empty": r.St.AAAAEmpty.Load(), "ipv6_refused": r.St.IPv6Refused.Load()})
 		fmt.Printf("RSTATS %s\n", st)
 	}
 }

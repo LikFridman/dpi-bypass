@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -191,5 +192,97 @@ func TestUDPGameTrafficStaysDirect(t *testing.T) {
 	r2 := New(Config{UDPUpstream: "127.0.0.1:1", UDPPorts: [][2]int{{50000, 65535}}})
 	if r2.udpViaUpstream(55000, "128.116.1.1") {
 		t.Error("Roblox не должен идти в обход даже без списка сетей")
+	}
+}
+
+// Сеть без IPv6: соединение к IPv6-адресу отклоняется сразу (а не «принято и оборвано»),
+// AAAA-запросы получают пустой ответ, к адресу DNS туннеля на 853 - отказ
+func TestNoIPv6(t *testing.T) {
+	got := make(chan string, 4)
+	up := fakeSocks(t, got)
+	defer up.Close()
+	r := New(Config{Listen: "127.0.0.1:0", Default: up.Addr().String()})
+	r.V6Check = func() bool { return false }
+	if err := r.Listen(); err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	reply := func(req []byte) byte {
+		c, err := net.Dial("tcp", r.Addr())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer c.Close()
+		c.SetDeadline(time.Now().Add(3 * time.Second))
+		c.Write([]byte{5, 1, 0})
+		io.ReadFull(c, make([]byte, 2))
+		c.Write(req)
+		h := make([]byte, 10)
+		if _, err := io.ReadFull(c, h); err != nil {
+			t.Fatalf("нет ответа SOCKS: %v", err)
+		}
+		return h[1]
+	}
+	v6 := append([]byte{5, 1, 0, 4}, net.ParseIP("2a00:1450:4010:c05::5b").To16()...)
+	if code := reply(append(v6, 1, 187)); code != 4 {
+		t.Fatalf("IPv6 без IPv6 у сети: код %d, нужен 4", code)
+	}
+	dot := append([]byte{5, 1, 0, 1}, net.ParseIP(TunnelDNS).To4()...)
+	if code := reply(append(dot, 3, 85)); code != 5 {
+		t.Fatalf("DoT к DNS туннеля: код %d, нужен 5", code)
+	}
+	if r.St.IPv6Refused.Load() != 1 {
+		t.Fatal("счётчик IPv6")
+	}
+	select {
+	case s := <-got:
+		t.Fatalf("соединение не должно было уйти в byedpi: %s", s)
+	default:
+	}
+
+	// AAAA: пустой ответ NOERROR с тем же вопросом
+	q := []byte{0x12, 0x34, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 7, 'y', 'o', 'u', 't', 'u', 'b', 'e', 3, 'c', 'o', 'm', 0, 0, 28, 0, 1}
+	if dnsQType(q) != 28 {
+		t.Fatalf("тип запроса %d", dnsQType(q))
+	}
+	e := dnsEmpty(q)
+	if len(e) != len(q) || e[0] != 0x12 || e[2]&0x80 == 0 || e[3]&0x0f != 0 || binary.BigEndian.Uint16(e[6:]) != 0 {
+		t.Fatalf("плохой пустой ответ % x", e)
+	}
+	q[len(q)-3] = 1
+	if dnsQType(q) != 1 {
+		t.Fatal("A-запрос")
+	}
+}
+
+// Сеть с IPv6: соединение к IPv6 идёт как обычно
+func TestWithIPv6(t *testing.T) {
+	got := make(chan string, 4)
+	up := fakeSocks(t, got)
+	defer up.Close()
+	r := New(Config{Listen: "127.0.0.1:0", Default: up.Addr().String()})
+	r.V6Check = func() bool { return true }
+	r.Listen()
+	defer r.Close()
+	c, _ := net.Dial("tcp", r.Addr())
+	defer c.Close()
+	c.SetDeadline(time.Now().Add(5 * time.Second))
+	c.Write([]byte{5, 1, 0})
+	io.ReadFull(c, make([]byte, 2))
+	c.Write(append(append([]byte{5, 1, 0, 4}, net.ParseIP("2a00:1450:4010:c05::5b").To16()...), 1, 187))
+	h := make([]byte, 10)
+	io.ReadFull(c, h)
+	if h[1] != 0 {
+		t.Fatalf("код %d", h[1])
+	}
+	c.Write(clientHello("www.youtube.com"))
+	select {
+	case s := <-got:
+		if !strings.HasPrefix(s, "[2a00:1450:4010:c05::5b]:443|") {
+			t.Fatal(s)
+		}
+	case <-time.After(4 * time.Second):
+		t.Fatal("не дошло до byedpi")
 	}
 }

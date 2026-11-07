@@ -102,6 +102,14 @@ func (r *Router) handleUDP(c net.Conn) {
 			if err != nil {
 				continue
 			}
+			if port == 53 && !r.IPv6() && dnsQType(data) == 28 {
+				// AAAA там, где у сети нет IPv6: пустой ответ - приложения сразу идут по IPv4
+				r.St.AAAAEmpty.Add(1)
+				if ip := net.ParseIP(host); ip != nil {
+					reply(append(udpHeader(&net.UDPAddr{IP: ip, Port: 53}), dnsEmpty(data)...))
+				}
+				continue
+			}
 			if port == 53 && r.dns != nil {
 				// DNS-запрос приложения: отвечаем через зашифрованный DNS (провайдер не подменит)
 				r.St.DNS.Add(1)
@@ -251,4 +259,55 @@ func dnsServfail(q []byte) []byte {
 		out = out[:n]
 	}
 	return out
+}
+
+// dnsQType - тип первого вопроса DNS-запроса (0 - не разобрать)
+func dnsQType(q []byte) int {
+	n := doh.QuestionEnd(q)
+	if n < 16 || binary.BigEndian.Uint16(q[4:]) == 0 {
+		return 0
+	}
+	return int(binary.BigEndian.Uint16(q[n-4:]))
+}
+
+// dnsEmpty - ответ «такое имя есть, но записей этого типа нет» (NOERROR без ответов)
+func dnsEmpty(q []byte) []byte {
+	out := dnsServfail(q)
+	out[3] = 0x80 // RA=1, RCODE=0
+	return out
+}
+
+// serveTCPDNS - DNS по TCP (длина 2 байта + запрос) через зашифрованный DNS
+func (r *Router) serveTCPDNS(c net.Conn) {
+	for {
+		c.SetReadDeadline(time.Now().Add(30 * time.Second))
+		lb := make([]byte, 2)
+		if _, err := io.ReadFull(c, lb); err != nil {
+			return
+		}
+		q := make([]byte, binary.BigEndian.Uint16(lb))
+		if _, err := io.ReadFull(c, q); err != nil || len(q) < 12 {
+			return
+		}
+		r.St.DNS.Add(1)
+		var resp []byte
+		if !r.IPv6() && dnsQType(q) == 28 {
+			r.St.AAAAEmpty.Add(1)
+			resp = dnsEmpty(q)
+		} else {
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			var err error
+			resp, err = r.dns.Exchange(ctx, q)
+			cancel()
+			if err != nil {
+				r.St.DNSFail.Add(1)
+				resp = dnsServfail(q)
+			}
+		}
+		out := make([]byte, 2, 2+len(resp))
+		binary.BigEndian.PutUint16(out, uint16(len(resp)))
+		if _, err := c.Write(append(out, resp...)); err != nil {
+			return
+		}
+	}
 }
