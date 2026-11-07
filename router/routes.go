@@ -415,6 +415,33 @@ func (r *Router) checkRoute(rt *route, all bool) {
 		}(up)
 	}
 	wg.Wait()
+	r.afterCheck(rt)
+}
+
+// afterCheck: текущий способ не ответил на проверке, а другой отвечает - переводим сразу, не дожидаясь второго сбоя
+func (r *Router) afterCheck(rt *route) {
+	cur := rt.pick(rt.g.Check == "tg")
+	if len(cur) < 2 {
+		return
+	}
+	rt.mu.Lock()
+	s := rt.state(cur[0])
+	alt := ""
+	for _, u := range cur[1:] {
+		if st := rt.state(u); st.checked && st.ok && time.Since(st.checkedAt) < time.Minute {
+			alt = u
+			break
+		}
+	}
+	switched := s.checked && !s.ok && alt != "" && !time.Now().Before(s.badUntil)
+	if switched {
+		s.badUntil = time.Now().Add(3 * time.Minute)
+	}
+	why := s.err
+	rt.mu.Unlock()
+	if switched {
+		r.logf("%s: %s не ответил на проверке (%s) - перевожу на %s", rt.g.Name, r.upName(cur[0]), why, r.upName(alt))
+	}
 }
 
 func (r *Router) checker(ctx context.Context) {

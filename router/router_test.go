@@ -459,3 +459,21 @@ func TestRouteRetryOnEarlyReset(t *testing.T) {
 		t.Fatalf("запасной получил не то начало: %s", g)
 	}
 }
+
+// Проверка способов: текущий не отвечает, запасной отвечает - переключение сразу
+func TestCheckSwitchesToWorkingBackup(t *testing.T) {
+	r := New(Config{Listen: "127.0.0.1:0", Groups: []Group{{Name: "X", Upstreams: []string{"a", "b"}, Domains: []string{"x.com"}}}})
+	rt := r.routes[0]
+	rt.state("a").checked, rt.state("a").ok, rt.state("a").checkedAt = true, false, time.Now()
+	rt.state("b").checked, rt.state("b").ok, rt.state("b").checkedAt = true, true, time.Now()
+	// checkRoute без сети: эмулируем его хвост - вызов с уже проверенными состояниями
+	r.routes[0].g.Upstreams = []string{"a", "b"}
+	cur := rt.pick(false)
+	if cur[0] != "a" {
+		t.Fatal(cur)
+	}
+	r.afterCheck(rt)
+	if p := rt.pick(false); p[0] != "b" {
+		t.Fatalf("не переключился: %v", p)
+	}
+}
