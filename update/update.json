@@ -108,5 +108,10 @@
       ]
     }
   ],
-  "_dns_providers_help": "Серверы для вкладки DNS (ПК и Android). Добавить сервер - новая строка: id, name, note, url (https://.../dns-query), ips (адреса без обычного DNS). Появится у всех без переустановки."
+  "_dns_providers_help": "Серверы для вкладки DNS (ПК и Android). Добавить сервер - новая строка: id, name, note, url (https://.../dns-query), ips (адреса без обычного DNS). Появится у всех без переустановки.",
+  "vpn_sources": [
+    "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/BLACK_VLESS_RUS_mobile.txt",
+    "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/BLACK_SS+All_RUS.txt",
+    "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/Vless-Reality-White-Lists-Rus-Mobile.txt"
+  ]
 }

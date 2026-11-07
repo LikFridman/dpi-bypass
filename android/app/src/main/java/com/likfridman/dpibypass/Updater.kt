@@ -46,6 +46,7 @@ object Updater {
                 j.optString("report_url").trimEnd('/').takeIf { it.startsWith("https://") }?.let { Store.setReportUrl(ctx, it) }
                 j.optJSONArray("tg_proxy_sources")?.let { a -> Store.setTgSources(ctx, (0 until a.length()).map { a.getString(it) }) }
                 j.optJSONArray("dns_providers")?.takeIf { it.length() > 0 }?.let { Store.setDnsProviders(ctx, it.toString()) }
+                j.optJSONArray("vpn_sources")?.takeIf { it.length() > 0 }?.let { a -> Vpn.setSources(ctx, (0 until a.length()).map { a.getString(it) }) }
                 return
             }
         }
