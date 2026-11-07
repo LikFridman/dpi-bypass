@@ -13,7 +13,12 @@ object UiTest {
 
     fun run(a: Activity, check: (String, Boolean, String) -> Unit) {
         val m = a as? MainActivity ?: run { check("автотест интерфейса", false, "нет окна"); return }
-        fun js(code: String) = m.evalJs(code, 8000)
+        // окно могла пересоздать система - обращаемся к текущему (ждём, пока оно появится)
+        fun win(): MainActivity {
+            for (i in 0 until 20) { MainActivity.current?.let { if (!it.isFinishing && !it.isDestroyed) return it }; Thread.sleep(250) }
+            return MainActivity.current ?: m
+        }
+        fun js(code: String) = win().evalJs(code, 8000)
         fun click(sel: String, what: String): Boolean {
             val r = js("(function(){const e=document.querySelector(${q(sel)});if(!e)return 'none';e.click();return 'ok'})()")
             val ok = r == "\"ok\""

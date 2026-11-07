@@ -39,11 +39,15 @@ class MainActivity : Activity() {
         private const val REQ_VPN = 1
         private const val REQ_FILE = 2
         private const val REQ_NOTIF = 3
+        /** Текущее окно (автотест обращается к нему, даже если система пересоздала окно) */
+        @Volatile var current: MainActivity? = null
     }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        current = this
+        if (savedInstanceState != null) Engine.dbg("окно пересоздано системой")
         Report.installCrashHandler(this)
         Engine.nativeDir = applicationInfo.nativeLibraryDir
         Engine.useDoH = Store.doh(this)
@@ -550,6 +554,8 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        if (current === this) current = null
+        Engine.dbg("окно закрыто (isFinishing=$isFinishing, changingConfigurations=$changingConfigurations)")
         ui.removeCallbacks(pusher)
         web.destroy()
         super.onDestroy()
