@@ -104,6 +104,8 @@ object UiTest {
         val doh = rs?.optJSONObject("doh")
         check("DNS из туннеля идёт через зашифрованный DNS", dnsQ > 0 && dnsFail < dnsQ,
             "запросов $dnsQ, ошибок $dnsFail, сервер ${doh?.optString("current")}, кеш ${doh?.optLong("cache_hits")}")
+        val noBackup = Engine.logsSince(0).second.count { "не принял запасную" in it }
+        check("byedpi принял запасную стратегию", noBackup == 0, "отказов $noBackup")
         val bad = Engine.logsSince(0).second.filter { "Ошибка команды" in it || "Страница перезапущена" in it }
         check("ошибок команд нет", bad.isEmpty(), bad.joinToString(" / ").take(500))
         Log.i(TAG, "INFO ui log lines since start: ${Engine.logsSince(logStart).second.size}")

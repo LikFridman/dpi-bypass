@@ -85,7 +85,7 @@ object Pool {
         // у запасной берём только основную часть (без её собственных --auto-групп)
         val i = backup.args.indexOf("--auto")
         val b = if (i >= 0) backup.args.subList(0, i) else backup.args
-        return listOf("--timeout", "3") + s.args + listOf("--auto", "torst,ssl_err") + b
+        return listOf("--tls-timeout", "3") + s.args + listOf("--auto", "torst,ssl_err") + b
     }
 
     private fun routerConfig(ctx: Context, pl: Plan): JSONObject {
