@@ -14,8 +14,8 @@ data class PlanGroup(val strategy: String, val sites: List<String>)
  * План обхода: стратегия по умолчанию (для всего трафика) и отдельные стратегии для
  * сайтов, которым нужна другая. ytKBps - скорость видео YouTube при выборе.
  */
-data class Plan(val default: String, val groups: List<PlanGroup>, val ytKBps: Int = 0) {
-    fun toJson(): JSONObject = JSONObject().put("default", default).put("yt_kbps", ytKBps)
+data class Plan(val default: String, val groups: List<PlanGroup>, val ytKBps: Int = 0, val backup: String = "") {
+    fun toJson(): JSONObject = JSONObject().put("default", default).put("yt_kbps", ytKBps).put("backup", backup)
         .put("groups", JSONArray(groups.map { JSONObject().put("strategy", it.strategy).put("sites", JSONArray(it.sites)) }))
 
     /** Какая стратегия отвечает за сайт */
@@ -29,7 +29,7 @@ data class Plan(val default: String, val groups: List<PlanGroup>, val ytKBps: In
                 val x = g.getJSONObject(i)
                 val a = x.getJSONArray("sites")
                 PlanGroup(x.getString("strategy"), (0 until a.length()).map { a.getString(it) })
-            }, o.optInt("yt_kbps"))
+            }, o.optInt("yt_kbps"), o.optString("backup"))
         }.getOrNull()
     }
 }
@@ -39,7 +39,8 @@ data class Plan(val default: String, val groups: List<PlanGroup>, val ytKBps: In
  * byedpi для UDP и маршрутизатор (libtgproxy.so -router), который раскладывает трафик туннеля.
  */
 object Pool {
-    private data class Proc(val args: List<String>, var p: Process?)
+    /** args - что запускаем (с запасной стратегией), base - без неё (если byedpi не примет) */
+    private data class Proc(val args: List<String>, var p: Process?, val base: List<String> = args)
 
     private val procs = LinkedHashMap<Int, Proc>() // порт -> процесс
     @Volatile private var router: Process? = null
@@ -55,15 +56,36 @@ object Pool {
         stopAll()
         plan = pl
         val def = Engine.strategyById(pl.default) ?: Engine.strategies.first()
-        procs[Engine.PORT] = Proc(def.args, null)
+        val backup = Engine.strategyById(pl.backup)
+        procs[Engine.PORT] = Proc(withBackup(def, backup), null, def.args)
         pl.groups.forEachIndexed { i, g ->
-            if (g.strategy != Engine.NONE) Engine.strategyById(g.strategy)?.let { procs[Engine.GROUP_PORT + i] = Proc(it.args, null) }
+            if (g.strategy != Engine.NONE) Engine.strategyById(g.strategy)?.let { procs[Engine.GROUP_PORT + i] = Proc(withBackup(it, backup), null, it.args) }
         }
         if (Store.discordUdp(ctx)) procs[Engine.UDP_PORT] = Proc(Engine.udpArgs, null)
-        for ((port, pr) in procs) pr.p = Engine.startProxyArgs(ctx, pr.args, port)
+        for ((port, pr) in procs) {
+            pr.p = Engine.startProxyArgs(ctx, pr.args, port)
+            // эта сборка byedpi не приняла параметры запасной стратегии - запускаем без неё
+            if (pr.p?.isAlive != true && pr.base != pr.args) {
+                Engine.dbg("byedpi:$port не принял запасную стратегию - без неё")
+                pr.p = Engine.startProxyArgs(ctx, pr.base, port)
+            }
+        }
         if (procs[Engine.PORT]?.p?.isAlive != true) return false
         startRouter(ctx, pl)
         return true
+    }
+
+    /**
+     * Стратегия + запасная на каждое соединение: если сервер не ответил за 3 с или соединение сбросили
+     * (часть видеосерверов YouTube режут по-другому), byedpi сам повторяет его запасной стратегией -
+     * вместо зависания на 20-30 с.
+     */
+    private fun withBackup(s: Strategy, backup: Strategy?): List<String> {
+        if (backup == null || backup.id == s.id) return s.args
+        // у запасной берём только основную часть (без её собственных --auto-групп)
+        val i = backup.args.indexOf("--auto")
+        val b = if (i >= 0) backup.args.subList(0, i) else backup.args
+        return listOf("--timeout", "3") + s.args + listOf("--auto", "torst,ssl_err") + b
     }
 
     private fun routerConfig(ctx: Context, pl: Plan): JSONObject {

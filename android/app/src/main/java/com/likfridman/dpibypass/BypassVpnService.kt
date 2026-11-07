@@ -205,11 +205,11 @@ class BypassVpnService : VpnService() {
                 // отчёт о подключении - когда Telegram успеет поработать
                 Thread { Thread.sleep(20_000); Report.send(this, "connect") }.start()
             }
-            if (fails >= 2 && !stopping) {
+            if (fails >= 3 && !stopping) {
                 Engine.log("Сайты перестали открываться - подбираю стратегию заново")
                 Report.error("сайты перестали открываться: $ok из $total")
                 Report.send(this, "error")
-                Pool.stopAll()
+                // подбор - на отдельном порту, текущий обход всё это время работает
                 val pl = Engine.select(this)
                 Pool.start(this, pl)
                 fails = 0
@@ -255,8 +255,7 @@ class BypassVpnService : VpnService() {
             Engine.log("Сеть сменилась: $title - беру сохранённые для неё стратегии")
             Pool.start(this, saved)
         } else {
-            Engine.log("Сеть сменилась: $title - здесь ещё не подбирали, подбираю")
-            Pool.stopAll()
+            Engine.log("Сеть сменилась: $title - здесь ещё не подбирали, подбираю (обход пока работает со старыми стратегиями)")
             val pl = Engine.select(this)
             Pool.start(this, pl)
         }

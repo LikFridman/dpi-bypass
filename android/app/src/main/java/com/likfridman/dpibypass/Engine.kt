@@ -129,7 +129,7 @@ object Engine {
         val base = Store.reportUrl(ctx)
         if (asn.isEmpty() || !base.startsWith("https://")) return emptyList()
         return runCatching {
-            val j = JSONObject(Net.get("$base/presets?platform=android&asn=$asn", 4000).body)
+            val j = JSONObject(Net.get("$base/presets?platform=android&asn=$asn", 4000) { x -> x.code == 200 && x.body.trimStart().startsWith("{") }.body)
             val a = j.optJSONArray("strategies") ?: JSONArray()
             val ids = (0 until a.length()).map { a.getJSONObject(it).optString("id") }.filter { strategyById(it) != null }
             if (ids.isNotEmpty()) log("У других пользователей $asn чаще всего работают: ${ids.joinToString()} (по ${j.optInt("reports")} отчётам) - пробую их первыми")
@@ -551,7 +551,13 @@ object Engine {
         }
         val ytK = m.optJSONObject(assign["YouTube"] ?: def)?.optJSONObject("YouTube")?.optInt("kbps") ?: 0
         val none = groups.remove(NONE)
-        val pl = Plan(def, groups.map { PlanGroup(it.key, it.value) }.take(5) + listOfNotNull(none?.let { PlanGroup(NONE, it) }), ytK)
+        // запасная стратегия на каждое соединение: больше всего сервисов открыла (YouTube - с весом)
+        val backup = m.keys().asSequence().filter { it != def && strategyById(it) != null }.maxByOrNull { id ->
+            val o = m.optJSONObject(id) ?: JSONObject()
+            o.keys().asSequence().sumOf { k -> if (o.optJSONObject(k)?.optBoolean("ok") == true) (if (k == "YouTube") 3 else 1) else 0 }
+        }?.takeIf { id -> m.optJSONObject(id)?.let { o -> o.keys().asSequence().any { o.optJSONObject(it)?.optBoolean("ok") == true } } == true } ?: ""
+        val pl = Plan(def, groups.map { PlanGroup(it.key, it.value) }.take(5) + listOfNotNull(none?.let { PlanGroup(NONE, it) }), ytK, backup)
+        if (backup.isNotEmpty()) log("Запасная стратегия на каждое соединение: ${strategyById(backup)?.name} (если сервер молчит 3 с)")
         Store.setPlan(ctx, pl)
         assign.values.toSet().forEach { Store.recordWorked(ctx, it) }
         // после подбора - отчёт с полной таблицей проверенных стратегий

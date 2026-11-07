@@ -391,7 +391,8 @@ object Report {
      */
     private fun post(url: String, f: File): String? {
         if (!url.startsWith("https://")) return null
-        val r = Net.request("$url/report", "POST", f.readBytes(), 15000)
+        // настоящий ответ сервера отчётов - JSON с номером или ошибкой; иначе это заглушка оператора
+        val r = Net.request("$url/report", "POST", f.readBytes(), 15000) { x -> x.body.trimStart().startsWith("{") && x.code != 403 }
         return when (r.code) {
             200 -> runCatching { JSONObject(r.body).optString("id") }.getOrDefault("").ifEmpty { null }?.also { f.delete() }
             400, 413 -> { Engine.dbg("отчёт отклонён сервером (${r.code}): ${r.body}"); f.delete(); "" }

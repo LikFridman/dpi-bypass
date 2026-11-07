@@ -21,7 +21,7 @@ object Updater {
     fun fetch(): String {
         for (u in versionUrls) {
             runCatching {
-                val v = Net.get(u).takeIf { it.code == 200 }?.body?.trim() ?: return@runCatching
+                val v = Net.get(u) { x -> x.code == 200 && Regex("""\s*\d+(\.\d+){0,3}\s*""").matches(x.body) }.takeIf { it.code == 200 }?.body?.trim() ?: return@runCatching
                 if (Regex("""\d+(\.\d+){0,3}""").matches(v)) {
                     latest = v; checkedAt = System.currentTimeMillis()
                     return v
@@ -40,7 +40,7 @@ object Updater {
     fun refreshConfig(ctx: Context) {
         for (u in configUrls) {
             runCatching {
-                val r = Net.get(u)
+                val r = Net.get(u) { x -> x.code == 200 && x.body.trimStart().startsWith("{") }
                 if (r.code != 200) return@runCatching
                 val j = org.json.JSONObject(r.body)
                 j.optString("report_url").trimEnd('/').takeIf { it.startsWith("https://") }?.let { Store.setReportUrl(ctx, it) }
