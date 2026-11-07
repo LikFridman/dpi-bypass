@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -72,6 +73,12 @@ func ensureZapret() error {
 			return fmt.Errorf("не удалось скачать %s: %v", f, err)
 		}
 		say(col(cGreen, "ok"))
+	}
+	if len(miss) == len(zapretFiles) {
+		// свежая установка: запомнить сборку, чтобы сразу не скачивать её второй раз
+		if rev := latestZapretRev(&http.Client{Timeout: 15 * time.Second}); rev != "" {
+			os.WriteFile(zapretRevFile(), []byte(rev+"\n"), 0644)
+		}
 	}
 	if miss := missingZapretFiles(); len(miss) > 0 {
 		return fmt.Errorf("файлы пропали сразу после загрузки (%s) - скорее всего их удалил антивирус", strings.Join(miss, ", "))
@@ -416,4 +423,115 @@ func checkConflicts() {
 	if killStrayWinws() {
 		info("Остановил ранее запущенный winws.exe")
 	}
+}
+
+// ---------- обновление winws ----------
+
+// zapretRevFile - какая сборка zapret-win-bundle лежит в папке (коммит)
+func zapretRevFile() string { return zp("bundle.rev") }
+
+func installedZapretRev() string {
+	b, _ := os.ReadFile(zapretRevFile())
+	return strings.TrimSpace(string(b))
+}
+
+// latestZapretRev - последний коммит zapret-win-bundle (GitHub API, запасной путь - jsDelivr).
+func latestZapretRev(cl *http.Client) string {
+	get := func(u string) []byte {
+		req, _ := http.NewRequest("GET", u, nil)
+		req.Header.Set("User-Agent", "dpi-bypass")
+		r, err := cl.Do(req)
+		if err != nil {
+			return nil
+		}
+		defer r.Body.Close()
+		if r.StatusCode != 200 {
+			return nil
+		}
+		b, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		return b
+	}
+	var gh []struct {
+		SHA string `json:"sha"`
+	}
+	if b := get("https://api.github.com/repos/bol-van/zapret-win-bundle/commits?path=zapret-winws&per_page=1"); b != nil &&
+		json.Unmarshal(b, &gh) == nil && len(gh) > 0 && len(gh[0].SHA) == 40 {
+		return gh[0].SHA
+	}
+	var jd struct {
+		Version string `json:"version"`
+	}
+	if b := get("https://data.jsdelivr.com/v1/packages/gh/bol-van/zapret-win-bundle/resolved?specifier=master"); b != nil &&
+		json.Unmarshal(b, &jd) == nil && len(jd.Version) == 40 {
+		return jd.Version
+	}
+	return ""
+}
+
+// updateZapret - если в zapret-win-bundle вышла новая сборка winws, скачивает её целиком во временную
+// папку и подменяет файлы (только пока winws не запущен; папку, которую пользователь положил рядом
+// с exe сам, не трогает). Ошибка обновления не мешает работе - остаётся прежняя сборка.
+func updateZapret() (string, error) {
+	for _, f := range zapretFiles {
+		os.Remove(zp(f) + ".old")
+	}
+	if zapDir != filepath.Join(dataDir, "zapret-winws") {
+		return "", nil
+	}
+	if runningProcesses()["winws.exe"] {
+		return "", nil
+	}
+	cl := &http.Client{Timeout: 20 * time.Second}
+	rev := latestZapretRev(cl)
+	if rev == "" {
+		return "", fmt.Errorf("не удалось узнать последнюю сборку zapret-win-bundle")
+	}
+	if rev == installedZapretRev() {
+		return rev, nil
+	}
+	tmp := zapDir + ".new"
+	os.RemoveAll(tmp)
+	defer os.RemoveAll(tmp)
+	cl.Timeout = 90 * time.Second
+	for _, f := range zapretFiles {
+		var err error
+		for _, base := range []string{
+			"https://raw.githubusercontent.com/bol-van/zapret-win-bundle/" + rev + "/zapret-winws/",
+			"https://cdn.jsdelivr.net/gh/bol-van/zapret-win-bundle@" + rev + "/zapret-winws/",
+		} {
+			if err = download(cl, base+f, filepath.Join(tmp, filepath.FromSlash(f))); err == nil {
+				break
+			}
+		}
+		if err != nil {
+			return rev, fmt.Errorf("обновление winws: не скачался %s: %v", f, err)
+		}
+	}
+	changed := 0
+	for _, f := range zapretFiles {
+		nf := filepath.Join(tmp, filepath.FromSlash(f))
+		nb, _ := os.ReadFile(nf)
+		ob, _ := os.ReadFile(zp(f))
+		if len(nb) > 0 && bytes.Equal(nb, ob) {
+			continue
+		}
+		os.MkdirAll(filepath.Dir(zp(f)), 0755)
+		// файл загруженного драйвера нельзя удалить, но можно переименовать
+		if fileExists(zp(f)) {
+			if err := os.Rename(zp(f), zp(f)+".old"); err != nil {
+				return rev, fmt.Errorf("обновление winws: %s занят: %v", f, err)
+			}
+		}
+		if err := os.Rename(nf, zp(f)); err != nil {
+			os.Rename(zp(f)+".old", zp(f))
+			return rev, fmt.Errorf("обновление winws: %s: %v", f, err)
+		}
+		os.Remove(zp(f) + ".old")
+		changed++
+	}
+	os.WriteFile(zapretRevFile(), []byte(rev+"\n"), 0644)
+	if changed > 0 {
+		good("winws (zapret) обновлён до свежей сборки zapret-win-bundle %s (файлов: %d)", rev[:7], changed)
+	}
+	return rev, nil
 }

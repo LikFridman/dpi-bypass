@@ -490,8 +490,8 @@ class MainActivity : Activity() {
                 // строка в кавычках JSON: страница делает JSON.parse
                 "agreement" -> JSONObject.quote(runCatching { assets.open("AGREEMENT.md").bufferedReader().readText() }.getOrDefault(""))
                 "report" -> {
+                    toast("Собираю и отправляю отчёт…")
                     Report.send(this@MainActivity, "manual", done = { msg -> toast(msg) })
-                    toast("Собираю отчёт…")
                     null
                 }
                 "vpnSettings" -> { ui.post { startActivity(Intent("android.settings.VPN_SETTINGS")) }; null }

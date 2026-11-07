@@ -92,6 +92,10 @@ object SelfTest {
         val rj = runCatching { Report.build(a, "test") }
         check("отчёт собирается", rj.getOrNull()?.has("device") == true, rj.exceptionOrNull()?.toString() ?: "${rj.getOrNull()?.toString()?.length} байт")
         rj.getOrNull()?.let { Log.i(TAG, "INFO report " + it.toString().take(3000)) }
+        // отчёт действительно доходит до сервера (номер выводится, тестовый отчёт потом удаляется вручную)
+        val t0 = System.currentTimeMillis()
+        val sent = runCatching { Report.sendNow(a, "selftest") }.getOrElse { it.toString() }
+        check("отчёт доходит до сервера", sent.startsWith("Отчёт отправлен"), "$sent за ${(System.currentTimeMillis() - t0) / 1000} с")
 
         for (i in 0 until 40) { if (page != null) break; Thread.sleep(250) }
         check("страница", page == "[]", page ?: "нет ответа")

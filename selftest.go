@@ -31,6 +31,7 @@ func selftest() int {
 	}
 	svcs := mustPrepare()
 	check("winws скачан", len(missingZapretFiles()) == 0, "")
+	check("сборка winws - последняя из zapret-win-bundle", installedZapretRev() != "" && installedZapretRev() == latestZapretRev(&http.Client{Timeout: 20 * time.Second}), installedZapretRev())
 	vpnStep()
 	cfg := &Config{Best: "s1", Unfixable: map[string]string{}, Sites: map[string]string{"example.org": "s2"}}
 	var names []string

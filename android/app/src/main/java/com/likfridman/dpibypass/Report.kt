@@ -143,10 +143,7 @@ object Report {
         }
         // внешний IP и провайдер (приложение исключено из своего VPN - это настоящий провайдер)
         runCatching {
-            val c = URL("https://ipinfo.io/json").openConnection() as HttpURLConnection
-            c.connectTimeout = 5000; c.readTimeout = 5000
-            val j = JSONObject(c.inputStream.bufferedReader().readText())
-            c.disconnect()
+            val j = JSONObject(Net.get("https://ipinfo.io/json", 5000) { x -> x.code == 200 && x.body.trimStart().startsWith("{") }.body)
             val org = j.optString("org")
             o.put("ip", j.optString("ip")).put("city", j.optString("city")).put("region", j.optString("region"))
                 .put("country", j.optString("country")).put("asn", org.substringBefore(" ")).put("isp", org.substringAfter(" ", ""))
@@ -366,24 +363,46 @@ object Report {
 
     private fun queueDir(ctx: Context) = File(ctx.filesDir, "reports").apply { mkdirs() }
 
+    @Volatile private var urlCheckedAt = 0L
+
+    /** Адрес сервера отчётов: сохранённый сразу, а свежий из update.json - не чаще раза в час. */
     private fun reportUrl(ctx: Context): String {
-        Updater.refreshConfig(ctx)
+        val saved = Store.reportUrl(ctx)
+        if (saved.startsWith("https://") && System.currentTimeMillis() - urlCheckedAt < 3600_000) return saved
+        urlCheckedAt = System.currentTimeMillis()
+        if (saved.startsWith("https://")) { Thread { runCatching { Updater.refreshConfig(ctx) } }.start(); return saved }
+        runCatching { Updater.refreshConfig(ctx) }
         return Store.reportUrl(ctx)
     }
 
-    /** Собирает отчёт, ставит в очередь и отправляет всё накопленное. done - сообщение для пользователя. */
+    private val sending = java.util.concurrent.locks.ReentrantLock()
+
+    /** Собирает отчёт, ставит в очередь и отправляет всё накопленное. done - сообщение для пользователя (всегда вызывается). */
     fun send(ctx: Context, trigger: String, done: ((String) -> Unit)? = null, extra: JSONObject? = null) {
-        if (!Store.consentOK(ctx)) return
+        if (!Store.consentOK(ctx)) { done?.invoke("Отчёт не отправлен: не принято соглашение (Settings)"); return }
         val app = ctx.applicationContext
         Thread {
-            runCatching {
-                val r = build(app, trigger)
-                extra?.keys()?.forEach { k -> r.put(k, extra.get(k)) }
-                File(queueDir(app), "${System.currentTimeMillis()}-${(1000..9999).random()}.json").writeText(r.toString())
-                flush(app, done)
-            }.onFailure { done?.invoke("Отчёт не собран: ${it.message}") }
+            val msg = try {
+                sendNow(app, trigger, extra)
+            } catch (e: Throwable) {
+                "Отчёт не собран: ${e.javaClass.simpleName}: ${e.message}"
+            }
+            if (done != null) Engine.log(msg) else Engine.dbg("отчёт ($trigger): $msg")
+            runCatching { done?.invoke(msg) }
         }.start()
     }
+
+    /** Синхронно: собрать отчёт, поставить в очередь, отправить. Возвращает итог для пользователя. */
+    fun sendNow(ctx: Context, trigger: String, extra: JSONObject? = null): String {
+        val r = build(ctx, trigger)
+        extra?.keys()?.forEach { k -> r.put(k, extra.get(k)) }
+        val f = File(queueDir(ctx), "${System.currentTimeMillis()}-${(1000..9999).random()}.json")
+        f.writeText(r.toString())
+        return flush(ctx, f)
+    }
+
+    /** Последний итог отправки (для автотеста). */
+    @Volatile var lastId = ""
 
     /**
      * Отправить один файл отчёта. Возвращает номер отчёта; null - не отправлен (файл остаётся в очереди),
@@ -400,27 +419,40 @@ object Report {
         }
     }
 
-    @Synchronized
-    private fun flush(ctx: Context, done: ((String) -> Unit)?) {
-        val files = queueDir(ctx).listFiles { f -> f.name.endsWith(".json") }?.sortedBy { it.name } ?: return
-        files.dropLast(20).forEach { it.delete() }
-        val url = reportUrl(ctx)
-        if (!url.startsWith("https://")) {
-            done?.invoke("Отчёт сохранён, но адрес для отчётов ещё не настроен разработчиком")
-            return
-        }
-        for (f in files.takeLast(20)) {
-            val id = try {
-                post(url, f)
-            } catch (e: Exception) {
-                Engine.dbg("отчёт не отправился: ${e.message}")
-                done?.invoke("Отчёт не отправился (${e.message}), попробую позже")
-                return
+    /**
+     * Отправить очередь: сначала свежий отчёт (его итог видит пользователь), потом накопленные.
+     * Одновременно идёт одна отправка; если она затянулась - этот отчёт ждёт в очереди.
+     */
+    private fun flush(ctx: Context, mine: File?): String {
+        if (!sending.tryLock(40, java.util.concurrent.TimeUnit.SECONDS)) return "Отчёт в очереди: идёт отправка предыдущего, уйдёт следом"
+        try {
+            val all = queueDir(ctx).listFiles { f -> f.name.endsWith(".json") }?.sortedByDescending { it.name } ?: emptyList()
+            all.drop(20).forEach { it.delete() }
+            val files = all.take(20).let { l -> if (mine != null && mine in l) listOf(mine) + (l - mine) else l }
+            if (files.isEmpty()) return "Очередь отчётов пуста"
+            val url = reportUrl(ctx)
+            if (!url.startsWith("https://")) return "Отчёт сохранён, но адрес сервера отчётов не получен (нет доступа к GitHub) - уйдёт позже"
+            val deadline = System.currentTimeMillis() + 90_000
+            var result = ""
+            for (f in files) {
+                if (System.currentTimeMillis() > deadline) break
+                val id = try {
+                    post(url, f)
+                } catch (e: Exception) {
+                    val m = "Отчёт не отправился: ${e.message} - сохранён, попробую позже"
+                    return if (result.isEmpty()) m else result
+                }
+                val m = when {
+                    id == null -> "Сервер отчётов не принял отчёт - он сохранён и уйдёт позже"
+                    id.isEmpty() -> "Сервер отклонил отчёт (слишком большой?)"
+                    else -> { lastId = id; Engine.dbg("отчёт ${f.name} отправлен, номер $id"); "Отчёт отправлен, номер $id" }
+                }
+                if (result.isEmpty()) result = m
+                if (id == null) break
             }
-            when {
-                id == null -> { done?.invoke("Сервер отчётов не принял отчёт - он сохранён и уйдёт позже"); return }
-                id.isNotEmpty() -> { Engine.log("Отчёт для разработчика отправлен, номер $id"); done?.invoke("Отчёт отправлен, номер $id") }
-            }
+            return result.ifEmpty { "Отчёт в очереди" }
+        } finally {
+            sending.unlock()
         }
     }
 }

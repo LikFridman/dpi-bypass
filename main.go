@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-var version = "2.6.7" // при сборке на GitHub подставляется номер версии
+var version = "2.6.8" // при сборке на GitHub подставляется номер версии
 
 var (
 	baseDir string
@@ -446,6 +446,9 @@ func mustPrepare() []Service {
 		fail("%v", err)
 	}
 	if !updatesDone {
+		if _, err := updateZapret(); err != nil {
+			warn("%v - работаю на прежней сборке", err)
+		}
 		loadServices() // создаёт sites.txt, если его нет
 		applyUpdates()
 		updatesDone = true
