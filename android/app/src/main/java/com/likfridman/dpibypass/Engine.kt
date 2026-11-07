@@ -552,10 +552,19 @@ object Engine {
         val ytK = m.optJSONObject(assign["YouTube"] ?: def)?.optJSONObject("YouTube")?.optInt("kbps") ?: 0
         val none = groups.remove(NONE)
         // запасная стратегия на каждое соединение: больше всего сервисов открыла (YouTube - с весом)
-        val backup = m.keys().asSequence().filter { it != def && strategyById(it) != null }.maxByOrNull { id ->
-            val o = m.optJSONObject(id) ?: JSONObject()
-            o.keys().asSequence().sumOf { k -> if (o.optJSONObject(k)?.optBoolean("ok") == true) (if (k == "YouTube") 3 else 1) else 0 }
-        }?.takeIf { id -> m.optJSONObject(id)?.let { o -> o.keys().asSequence().any { o.optJSONObject(it)?.optBoolean("ok") == true } } == true } ?: ""
+        fun okScore(id: String): Int {
+            val o = m.optJSONObject(id) ?: return 0
+            var n = 0
+            for (k in o.keys()) if (o.optJSONObject(k)?.optBoolean("ok") == true) n += if (k == "YouTube") 3 else 1
+            return n
+        }
+        var backup = ""
+        var best = 0
+        for (id in m.keys()) {
+            if (id == def || strategyById(id) == null) continue
+            val sc = okScore(id)
+            if (sc > best) { best = sc; backup = id }
+        }
         val pl = Plan(def, groups.map { PlanGroup(it.key, it.value) }.take(5) + listOfNotNull(none?.let { PlanGroup(NONE, it) }), ytK, backup)
         if (backup.isNotEmpty()) log("Запасная стратегия на каждое соединение: ${strategyById(backup)?.name} (если сервер молчит 3 с)")
         Store.setPlan(ctx, pl)
