@@ -319,11 +319,32 @@ object Engine {
     @Volatile private var customCache: List<Strategy> = emptyList()
 
     fun allStrategies(ctx: Context): List<Strategy> {
-        customCache = Store.custom(ctx).map { (id, a) -> Strategy(id, a.joinToString(" "), a) }
+        customCache = Store.custom(ctx).map { (id, a) -> Strategy(id, a.joinToString(" "), a) } +
+            Store.remote(ctx).filter { r -> strategies.none { it.id == r.first } }.map { (id, n, a) -> Strategy(id, n.ifBlank { a.joinToString(" ") }, a) }
         return strategies + customCache
     }
 
     fun strategyById(id: String?) = strategies.firstOrNull { it.id == id } ?: customCache.firstOrNull { it.id == id }
+
+    /**
+     * Стратегии byedpi из update.json: только безопасные параметры (флаги и короткие значения без путей),
+     * номер с буквы r (не пересекается со встроенными), не больше 30 штук.
+     */
+    fun validRemote(a: JSONArray): JSONArray {
+        val out = JSONArray()
+        val flag = Regex("^--?[a-zA-Z][a-zA-Z-]*$")
+        val value = Regex("^[A-Za-z0-9+,.:=-]{1,40}$")
+        for (i in 0 until minOf(a.length(), 30)) {
+            val o = a.optJSONObject(i) ?: continue
+            val id = o.optString("id")
+            val args = o.optJSONArray("args") ?: continue
+            if (!Regex("^r[0-9]{1,3}$").matches(id) || args.length() == 0 || args.length() > 16) continue
+            val l = (0 until args.length()).map { args.optString(it) }
+            if (!l.first().startsWith("-") || l.any { !(flag.matches(it) || value.matches(it)) } || l.any { it.contains("/") }) continue
+            out.put(JSONObject().put("id", id).put("name", o.optString("name").take(60)).put("args", JSONArray(l)))
+        }
+        return out
+    }
 
     /** Сначала стратегии, которые уже срабатывали на этом телефоне. */
     fun orderedStrategies(ctx: Context): List<Strategy> {
@@ -823,7 +844,8 @@ object Engine {
         o.put("tgFound", TgProxy.found)
         o.put("tgSearching", TgProxy.isSearching)
         o.put("tgFoundAt", if (TgProxy.foundAt > 0) ago(TgProxy.foundAt) else "")
-        o.put("vpn", Vpn.stateJson(ctx))
+        // сбой в VPN не должен ломать всё состояние страницы
+        o.put("vpn", runCatching { Vpn.stateJson(ctx) }.getOrElse { JSONObject().put("available", false).put("error", it.message) })
         return o
     }
 

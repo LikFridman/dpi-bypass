@@ -101,9 +101,11 @@ object UiTest {
         js("(function(){const b=[...document.querySelectorAll('#shList button')].find(x=>x.textContent==='Find');b&&b.click()})()"); Thread.sleep(20000)
         useIn("WebSocket", "Telegram через WebSocket"); Thread.sleep(8000)
         alive("Telegram WebSocket")
-        click("#shCheck", "Check now у Telegram"); Thread.sleep(15000)
-        val tgAct = Pool.routes()["Telegram"]
-        check("Telegram: способ выбран и проверен", tgAct?.optString("active") == "tg-ws", tgAct?.toString()?.take(400) ?: "нет данных маршрутизатора")
+        click("#shCheck", "Check now у Telegram"); Thread.sleep(2000)
+        val tgAct = Pool.checkNow("Telegram")["Telegram"]
+        val tgWs = tgAct?.optJSONArray("ups")?.let { a -> (0 until a.length()).map { a.getJSONObject(it) }.firstOrNull { it.optString("up") == "tg-ws" } }
+        check("Telegram: WebSocket выбран, проверен и отвечает", tgAct?.optString("active") == "tg-ws" && tgWs?.optBoolean("ok") == true,
+            tgAct?.toString()?.take(500) ?: "нет данных маршрутизатора")
         click("#shAuto", "Telegram - Auto"); Thread.sleep(8000)
         click("#shClose", "закрыть окно Telegram"); Thread.sleep(500)
         alive("Telegram")
@@ -112,12 +114,17 @@ object UiTest {
         click(".tab[data-p=vpn]", "вкладка VPN"); Thread.sleep(600)
         js("document.querySelector('#vpnIn').value='vless://00000000-0000-0000-0000-000000000000@127.0.0.1:9?security=none&type=tcp#selftest'")
         click("#vpnAdd", "добавить свой ключ"); Thread.sleep(3000)
+        for (i in 0 until 60) { if (!Vpn.isTesting) break; Thread.sleep(1000) }
+        Thread.sleep(1000)
         val own = js("document.querySelectorAll('#vpnOwn .fr').length")?.toIntOrNull() ?: 0
         check("свой ключ появился в списке", own > 0, "строк $own")
         for (i in 0 until 60) { if (!Vpn.isTesting) break; Thread.sleep(1000) }
         js("(function(){const b=[...document.querySelectorAll('#vpnOwn button')].find(x=>x.textContent==='Remove');b&&b.click()})()"); Thread.sleep(1500)
         check("свой ключ удаляется", Vpn.own(m).isEmpty(), Vpn.own(m).joinToString())
-        click("#vpnTest", "VPN Test all"); Thread.sleep(3000)
+        for (i in 0 until 60) { if (!Vpn.isTesting) break; Thread.sleep(1000) }
+        click("#vpnTest", "VPN Test all")
+        for (i in 0 until 20) { if (Vpn.isTesting) break; Thread.sleep(300) }
+        check("VPN: проверка серверов началась", Vpn.isTesting, Vpn.progress)
         for (i in 0 until 300) { if (!Vpn.isTesting) break; Thread.sleep(1000) }
         val vok = Vpn.best(m).size
         check("VPN: рабочие серверы найдены", vok > 0, js("document.querySelector('#vpnStat').textContent") ?: "")

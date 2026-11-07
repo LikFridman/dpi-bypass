@@ -107,6 +107,17 @@ object Store {
     fun setTgWorker(ctx: Context, host: String) = p(ctx).edit().putString("tgWorker", host).apply()
 
     /** Свои (сгенерированные при глубоком поиске) стратегии: id -> аргументы byedpi */
+    /** Стратегии byedpi из update.json (android_strategies): id -> (название, параметры) */
+    fun remote(ctx: Context): List<Triple<String, String, List<String>>> = runCatching {
+        val a = org.json.JSONArray(p(ctx).getString("remote_strategies", "[]"))
+        (0 until a.length()).mapNotNull { i ->
+            val o = a.getJSONObject(i)
+            val args = o.optJSONArray("args") ?: return@mapNotNull null
+            Triple(o.optString("id"), o.optString("name"), (0 until args.length()).map { args.getString(it) })
+        }
+    }.getOrElse { emptyList() }
+    fun setRemote(ctx: Context, json: String) = p(ctx).edit().putString("remote_strategies", json).apply()
+
     fun custom(ctx: Context): Map<String, List<String>> {
         val o = runCatching { JSONObject(p(ctx).getString("custom", "{}")!!) }.getOrElse { JSONObject() }
         return o.keys().asSequence().associateWith { k -> o.getJSONArray(k).let { a -> (0 until a.length()).map { a.getString(it) } } }

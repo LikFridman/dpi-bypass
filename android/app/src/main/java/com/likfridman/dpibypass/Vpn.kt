@@ -65,11 +65,13 @@ object Vpn {
     fun subs(ctx: Context) = list(ctx, "subs")
     fun useFree(ctx: Context) = p(ctx).getBoolean("free", true)
     fun setUseFree(ctx: Context, v: Boolean) = p(ctx).edit().putBoolean("free", v).apply()
-    fun useWarp(ctx: Context) = p(ctx).getBoolean("warp", true)
+    // 2.7.0-2.7.1 хранили под тем же ключом ссылки WARP (строку) - такое значение сбрасывается
+    fun useWarp(ctx: Context) = runCatching { p(ctx).getBoolean("warp", true) }
+        .getOrElse { p(ctx).edit().remove("warp").apply(); true }
     fun setUseWarp(ctx: Context, v: Boolean) = p(ctx).edit().putBoolean("warp", v).apply()
     fun sources(ctx: Context) = list(ctx, "sources").filter { it.startsWith("https://") }.ifEmpty { DEFAULT_SOURCES }
     fun setSources(ctx: Context, v: List<String>) = setList(ctx, "sources", v)
-    private fun warpLinks(ctx: Context) = list(ctx, "warp")
+    private fun warpLinks(ctx: Context) = list(ctx, "warp_links")
 
     /** Добавить свои ключи или ссылки на подписки (по одной в строке). Возвращает итог для пользователя. */
     fun addOwn(ctx: Context, text: String): String {
@@ -198,7 +200,7 @@ object Vpn {
                 return
             }
             val a = JSONObject(line.removePrefix("WARP ")).getJSONArray("links")
-            setList(ctx, "warp", (0 until a.length()).map { a.getString(it) })
+            setList(ctx, "warp_links", (0 until a.length()).map { a.getString(it) })
             Engine.log("VPN: бесплатный Cloudflare WARP зарегистрирован")
         }.onFailure { Engine.dbg("WARP: ${it.message}") }
     }
