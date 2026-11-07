@@ -164,6 +164,9 @@ func exclArgs() []string {
 	return nil
 }
 
+// discordVoicePorts - порты голосовых серверов Discord (кроме 443)
+const discordVoicePorts = "2053,2083,2087,2096,8443"
+
 func testArgs(s Strategy) []string {
 	if isZ2(s) {
 		return testArgsZ2(s)
@@ -186,7 +189,7 @@ func buildArgs(cfg *Config, svcs []Service, withUDPExtras bool) ([]string, error
 	}
 
 	ex := exclArgs()
-	args := append(ifaceArg(curVPN), "--wf-tcp=80,443", "--wf-raw-part=@"+zp("windivert.filter/windivert_part.quic_initial_ietf.txt"))
+	args := append(ifaceArg(curVPN), "--wf-tcp=80,443,"+discordVoicePorts, "--wf-raw-part=@"+zp("windivert.filter/windivert_part.quic_initial_ietf.txt"))
 	if withUDPExtras {
 		args = append(args,
 			"--wf-raw-part=@"+zp("windivert.filter/windivert_part.discord_media.txt"),
@@ -259,6 +262,13 @@ func buildArgs(cfg *Config, svcs []Service, withUDPExtras bool) ([]string, error
 
 	// свой Cloudflare Worker для Telegram, сервер отчётов и обновления с GitHub - тоже через обход
 	// (*.workers.dev и raw.githubusercontent.com у части провайдеров заблокированы)
+	// голосовые серверы Discord: соединение с *.discord.media на портах Cloudflare (2053, 2083...) -
+	// без обхода голос «подключается» с пингом в тысячи мс (стратегия Flowseal)
+	args = append(args, "--filter-tcp="+discordVoicePorts, "--hostlist-domains=discord.media")
+	args = append(args, ex...)
+	args = append(args, "--dpi-desync=multisplit", "--dpi-desync-split-seqovl=681", "--dpi-desync-split-pos=1",
+		"--dpi-desync-split-seqovl-pattern="+fsBin("tls_clienthello_www_google_com.bin"), "--new")
+
 	own := []string{"workers.dev", "raw.githubusercontent.com"}
 	if tgWorkerHost != "" {
 		own = append(own, tgWorkerHost)
@@ -290,7 +300,9 @@ func buildArgs(cfg *Config, svcs []Service, withUDPExtras bool) ([]string, error
 		// голос Discord и STUN
 		args = append(args, "--new", "--filter-l7=discord,stun")
 		args = append(args, ex...)
-		args = append(args, "--dpi-desync=fake", "--dpi-desync-repeats=6")
+		// фейк - настоящий пакет голоса Discord (как у Flowseal): пустой DPI сейчас не обманывает
+		ud := fsBin("ACTIVE_DISCORD_UDP.bin")
+		args = append(args, "--dpi-desync=fake", "--dpi-desync-fake-discord="+ud, "--dpi-desync-fake-stun="+ud, "--dpi-desync-repeats=6")
 	}
 	return args, nil
 }

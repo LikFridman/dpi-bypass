@@ -121,6 +121,18 @@ func selftest() int {
 	}
 	check("комбинации глубокой проверки (выборка)", true, fmt.Sprintf("%d шт.", (len(combos)+6)/7))
 
+	// с голосом Discord (UDP, фейк-пакет Discord, порты голосовых серверов) - без запасного варианта
+	if a, e := buildArgs(cfg, svcs, true); e == nil {
+		if w, err := startWinws(a); err == nil {
+			time.Sleep(1500 * time.Millisecond)
+			tail := w.out.Tail()
+			alive := w.Alive()
+			w.Stop()
+			check("полная конфигурация с голосом Discord", alive, tail)
+		} else {
+			check("полная конфигурация с голосом Discord", false, err.Error())
+		}
+	}
 	w, err := startCombined(cfg, svcs)
 	if err != nil {
 		check("полная конфигурация", false, err.Error())

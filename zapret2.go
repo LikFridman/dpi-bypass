@@ -60,7 +60,8 @@ func z2Ready() bool {
 func z2Head() []string {
 	return []string{z2Marker,
 		"--lua-init=@" + zp("lua/zapret-lib.lua"), "--lua-init=@" + zp("lua/zapret-antidpi.lua"), "--lua-init=@" + zp("lua/zapret-auto.lua"),
-		"--blob=quic_google:@" + zp("files/quic_initial_www_google_com.bin")}
+		"--blob=quic_google:@" + zp("files/quic_initial_www_google_com.bin"),
+		"--blob=discord_udp:@" + fsBin("ACTIVE_DISCORD_UDP.bin")}
 }
 
 // z2TLS - профиль TLS: стратегии по порядку; несколько - с автопереключением circular
@@ -164,7 +165,7 @@ func buildArgsZ2(cfg *Config, svcs []Service, withUDPExtras bool) ([]string, err
 	best, _ := strategyByID(cfg.Best)
 	ex := exclArgs()
 	args := append(z2Head(), ifaceArg(curVPN)...)
-	args = append(args, "--wf-tcp-out=80,443", "--wf-raw-part=@"+zp("windivert.filter/windivert_part.quic_initial_ietf.txt"))
+	args = append(args, "--wf-tcp-out=80,443,"+discordVoicePorts, "--wf-raw-part=@"+zp("windivert.filter/windivert_part.quic_initial_ietf.txt"))
 	if withUDPExtras {
 		args = append(args,
 			"--wf-raw-part=@"+zp("windivert.filter/windivert_part.discord_media.txt"),
@@ -229,6 +230,12 @@ func buildArgsZ2(cfg *Config, svcs []Service, withUDPExtras bool) ([]string, err
 		}
 		profile("--hostlist="+lf, []Strategy{st})
 	}
+	// голосовые серверы Discord на портах Cloudflare
+	args = append(args, "--filter-tcp="+discordVoicePorts, "--filter-l7=tls", "--hostlist-domains=discord.media")
+	args = append(args, ex...)
+	args = append(args, z2TLS([]Strategy{best})...)
+	args = append(args, "--new")
+
 	own := []string{"workers.dev", "raw.githubusercontent.com"}
 	if tgWorkerHost != "" {
 		own = append(own, tgWorkerHost)
@@ -255,7 +262,7 @@ func buildArgsZ2(cfg *Config, svcs []Service, withUDPExtras bool) ([]string, err
 		// голос Discord и STUN
 		args = append(args, "--new", "--filter-l7=discord,stun")
 		args = append(args, ex...)
-		args = append(args, "--payload=stun,discord_ip_discovery", "--lua-desync=fake:blob=0x00000000000000000000000000000000:repeats=2")
+		args = append(args, "--payload=stun,discord_ip_discovery", "--lua-desync=fake:blob=discord_udp:repeats=6")
 	}
 	return args, nil
 }

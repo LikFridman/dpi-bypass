@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-var version = "2.8.4" // при сборке на GitHub подставляется номер версии
+var version = "2.8.5" // при сборке на GitHub подставляется номер версии
 
 var (
 	baseDir string
