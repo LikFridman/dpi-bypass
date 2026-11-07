@@ -276,3 +276,66 @@ func TestExtractLinks(t *testing.T) {
 		t.Fatalf("plain base64: %+v %v", u, err)
 	}
 }
+
+// Прямое подключение приложения Telegram (без прокси) переносится во внешний MTProto-прокси
+func TestBridgeDirectRelay(t *testing.T) {
+	for _, fakeTLS := range []bool{false, true} {
+		key := make([]byte, 16)
+		rand.Read(key)
+		gotDC := make(chan int16, 1)
+		ln := fakeMTProxy(t, key, fakeTLS, gotDC)
+		link := "tg://proxy?server=127.0.0.1&port=" + portOf(ln) + "&secret=dd" + hex.EncodeToString(key)
+		if fakeTLS {
+			link = "tg://proxy?server=127.0.0.1&port=" + portOf(ln) + "&secret=ee" + hex.EncodeToString(key) + hex.EncodeToString([]byte("www.google.com"))
+		}
+		up, err := ParseUpstream(link)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// приложение: obfuscated2 без секрета, DC4 медиа
+		rnd := make([]byte, 64)
+		rand.Read(rnd)
+		rnd[0] = 0x11
+		copy(rnd[56:60], tagIntermediate)
+		binary.LittleEndian.PutUint16(rnd[60:62], uint16(0xfffc)) // -4
+		enc := ctrStream(rnd[8:40], rnd[40:56])
+		encInit := xorBytes(enc, rnd)
+		init := append(append([]byte{}, rnd[:56]...), encInit[56:]...)
+		rev := reversed(rnd[8:56])
+		dec := ctrStream(rev[:32], rev[32:48])
+
+		a, b := net.Pipe()
+		px := &TGProxy{Secret: make([]byte, 16)}
+		done := make(chan bool, 1)
+		go func() { done <- px.BridgeDirectRelay(b, init, net.ParseIP("149.154.167.91"), up) }()
+		msg := packet(500)
+		go a.Write(xorBytes(enc, msg))
+		a.SetReadDeadline(time.Now().Add(3 * time.Second))
+		got := make([]byte, len(msg))
+		if _, err := io.ReadFull(a, got); err != nil {
+			t.Fatalf("fakeTLS=%v: %v", fakeTLS, err)
+		}
+		if !bytes.Equal(xorBytes(dec, got), msg) {
+			t.Fatalf("fakeTLS=%v: данные искажены", fakeTLS)
+		}
+		if dc := <-gotDC; dc != -4 {
+			t.Fatalf("fakeTLS=%v: DC %d", fakeTLS, dc)
+		}
+		a.Close()
+		if !<-done {
+			t.Fatal("BridgeDirectRelay вернул false")
+		}
+		ln.Close()
+	}
+	// прокси не отвечает - false, клиент не тронут
+	up, _ := ParseUpstream("tg://proxy?server=127.0.0.1&port=1&secret=dd00112233445566778899aabbccddeeff")
+	init := make([]byte, 64)
+	rand.Read(init)
+	init[0] = 0x11
+	px := &TGProxy{Secret: make([]byte, 16)}
+	a, b := net.Pipe()
+	defer a.Close()
+	if px.BridgeDirectRelay(b, init, net.ParseIP("149.154.167.51"), up) {
+		t.Fatal("должно быть false")
+	}
+}

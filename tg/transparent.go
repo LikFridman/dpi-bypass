@@ -173,3 +173,42 @@ func (p *TGProxy) BridgeDirect(c net.Conn, init []byte, dst net.IP, dial func(ad
 	ws.Close()
 	return true
 }
+
+// BridgeDirectRelay переносит прямое подключение Telegram (init уже прочитан) во внешний
+// MTProto-прокси: поток расшифровывается ключами приложения и шифруется ключами прокси.
+// false - прокси не ответил (клиент ещё не получил ни байта, можно пробовать другой путь).
+func (p *TGProxy) BridgeDirectRelay(c net.Conn, init []byte, dst net.IP, u Upstream) bool {
+	di, ok := ParseDirectInit(init)
+	if !ok {
+		return false
+	}
+	dc := di.DC
+	if dc < 1 || dc > 5 {
+		if dc != 203 {
+			dc = dcByIP(dst)
+		}
+	}
+	idx := dc
+	if di.Test {
+		idx += 10000
+	}
+	if di.Media {
+		idx = -idx
+	}
+	r := u.Route()
+	tc, _, err := r.TCP(dc)
+	if err != nil {
+		p.logOnce("relayfail"+u.Addr, "Telegram: прокси %s не отвечает (%s)", u.Addr, shortErrMsg(err))
+		return false
+	}
+	defer tc.Close()
+	ri := newRelayInit(di.Tag, int16(idx), r.RelaySecret)
+	cr := newTGCrypto(init, nil, ri, r.RelaySecret)
+	if _, err := tc.Write(ri); err != nil {
+		return false
+	}
+	p.logOnce("relayok"+u.Addr, "Telegram DC%d: прямое подключение переведено в прокси %s", dc, u.Addr)
+	p.viaTCP.Add(1)
+	p.bridgeTCP(c, tc, cr)
+	return true
+}

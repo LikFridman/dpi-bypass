@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,12 +25,23 @@ import (
 	"context"
 	"dpibypass/doh"
 	"dpibypass/tg"
+	"dpibypass/vpn"
 )
 
 // Group - копия byedpi со своей стратегией для списка доменов.
 type Group struct {
-	Upstream string   `json:"upstream"` // 127.0.0.1:1081; "direct" - без обхода
-	Domains  []string `json:"domains"`
+	Name      string   `json:"name"`      // сервис (для журнала и состояния)
+	Upstream  string   `json:"upstream"`  // один способ (старый вид): 127.0.0.1:1081; "direct" - без обхода
+	Upstreams []string `json:"upstreams"` // способы по порядку: основной, затем запасные
+	Domains   []string `json:"domains"`
+	CIDRs     []string `json:"cidrs"` // и по адресам (Telegram: соединения приложения без имени сайта)
+	Check     string   `json:"check"` // что проверять: имя сайта; "tg" - Telegram (MTProto)
+}
+
+// VPNSlot - сервер VPN на своём локальном порту (Xray запускает маршрутизатор)
+type VPNSlot struct {
+	Link string `json:"link"`
+	Port int    `json:"port"`
 }
 
 // Config - настройки маршрутизатора (передаются JSON-файлом).
@@ -47,6 +59,12 @@ type Config struct {
 	DoHCustom    string   `json:"doh_custom"`    // свой адрес https://.../dns-query
 	DoHURL       string   `json:"doh_url"`       // адрес выбранного сервера (список серверов обновляется с GitHub)
 	DoHIPs       []string `json:"doh_ips"`       // его IP (без обычного DNS)
+
+	Names     map[string]string `json:"names"`      // способ -> понятное имя (для журнала)
+	TGProxies []string          `json:"tg_proxies"` // MTProto-прокси для способа tg-proxy
+	VPN       []VPNSlot         `json:"vpn"`        // серверы VPN
+	Xray      string            `json:"xray"`       // путь к Xray
+	Control   string            `json:"control"`    // адрес HTTP для приложения (/state, /check)
 }
 
 // Stats - счётчики для отчётов
@@ -66,6 +84,16 @@ type Router struct {
 	tgFail  sync.Map // -> *failCount
 	dns     *doh.Resolver
 	udpNets []*net.IPNet
+
+	routes  []*route
+	tgMu    sync.Mutex
+	tgUps   []tg.Upstream
+	tgBadUp map[string]time.Time
+	ctl     net.Listener
+	sv      *vpn.Supervisor
+	stop    context.CancelFunc
+
+	XraySetup func(*exec.Cmd) // настройка процесса Xray (Linux/Android: умереть вместе с маршрутизатором)
 
 	v6mu    sync.Mutex
 	v6ok    bool
@@ -129,7 +157,16 @@ func New(cfg Config) *Router {
 		}
 	}
 	r.tgpx = &tg.TGProxy{Secret: make([]byte, 16), Log: func(f string, a ...any) { r.logf(f, a...) }}
+	r.buildRoutes()
 	return r
+}
+
+// VPNAlive - Xray работает (или VPN не настроен: nil)
+func (r *Router) VPNAlive() any {
+	if r.sv == nil {
+		return nil
+	}
+	return r.sv.Alive()
 }
 
 // DNSStats - счётчики зашифрованного DNS (nil, если выключен)
@@ -156,6 +193,29 @@ func (r *Router) Listen() error {
 		return err
 	}
 	r.ln = ln
+	ctx, cancel := context.WithCancel(context.Background())
+	r.stop = cancel
+	if len(r.cfg.VPN) > 0 && r.cfg.Xray != "" {
+		var slots []vpn.Slot
+		for _, v := range r.cfg.VPN {
+			s, err := vpn.Parse(v.Link)
+			if err != nil {
+				r.logf("VPN: сервер не разобран (%v)", err)
+				continue
+			}
+			slots = append(slots, vpn.Slot{Server: s, Port: v.Port})
+		}
+		r.sv = &vpn.Supervisor{Xray: r.cfg.Xray, Log: r.logf, Setup: r.XraySetup}
+		if err := r.sv.Run(slots); err != nil {
+			r.logf("VPN: Xray не запустился: %v", err)
+		}
+	}
+	if r.cfg.Control != "" {
+		if err := r.serveControl(r.cfg.Control); err != nil {
+			r.logf("управление: %v", err)
+		}
+	}
+	go r.checker(ctx)
 	go func() {
 		for {
 			c, err := ln.Accept()
@@ -169,7 +229,18 @@ func (r *Router) Listen() error {
 }
 
 func (r *Router) Addr() string { return r.ln.Addr().String() }
-func (r *Router) Close()       { r.ln.Close() }
+func (r *Router) Close() {
+	r.ln.Close()
+	if r.stop != nil {
+		r.stop()
+	}
+	if r.ctl != nil {
+		r.ctl.Close()
+	}
+	if r.sv != nil {
+		r.sv.Stop()
+	}
+}
 
 // ---------- SOCKS5 сервер ----------
 
@@ -291,26 +362,23 @@ func (r *Router) handleConnect(c net.Conn, target string) {
 	}
 	c.SetDeadline(time.Time{})
 
-	// приложение Telegram к своим серверам
-	if ip != nil && tg.IsTelegramIP(ip) && len(first) >= 64 {
-		if r.telegram(c, target, ip, first) {
-			return
-		}
-	}
-
 	name, _ := sniffHost(first)
 	if name == "" && ip == nil {
 		name = strings.ToLower(host) // SOCKS с доменом
 	}
-	up := r.cfg.Default
-	for _, g := range r.cfg.Groups {
-		if name != "" && matchDomain(name, g.Domains) {
-			up = g.Upstream
-			break
+	mtproto := ip != nil && tg.IsTelegramIP(ip) && len(first) >= 64 && name == ""
+	if rt := r.routeFor(ip, name); rt != nil {
+		r.serveRoute(rt, c, target, ip, first, mtproto)
+		return
+	}
+	// приложение Telegram к своим серверам (маршрут Telegram не задан)
+	if mtproto {
+		if r.telegram(c, target, ip, first) {
+			return
 		}
 	}
-	r.countGroup(up)
-	r.pipeVia(c, up, target, first, nil)
+	r.countGroup(r.cfg.Default)
+	r.pipeVia(c, r.cfg.Default, target, first, nil)
 }
 
 func (r *Router) countGroup(up string) {
@@ -318,38 +386,40 @@ func (r *Router) countGroup(up string) {
 	v.(*atomic.Int64).Add(1)
 }
 
-// pipeVia соединяет клиента с target через SOCKS5 upstream; done(получено байт) - по завершении
-func (r *Router) pipeVia(c net.Conn, up, target string, first []byte, done func(got int64, d time.Duration)) {
+// pipeResult - итог соединения через способ
+type pipeResult struct {
+	dialErr error         // не соединились (клиенту ещё ничего не отправлено)
+	got     int64         // получено от сервера
+	d       time.Duration // сколько длилось
+	upFirst bool          // первым закрыл сервер (а не приложение)
+}
+
+// pipeVia соединяет клиента с target через SOCKS5 upstream (или напрямую, "direct");
+// done(получено байт) - по завершении
+func (r *Router) pipeVia(c net.Conn, up, target string, first []byte, done func(got int64, d time.Duration)) pipeResult {
 	start := time.Now()
-	var u net.Conn
-	var err error
-	if up == "direct" {
-		// сервис без обхода (пользователь выбрал None): напрямую, как без программы
-		u, err = net.DialTimeout("tcp", target, 10*time.Second)
-	} else {
-		u, err = tg.SocksDial(up, target)
-	}
+	u, err := r.dialUp(up, target)
 	if err != nil {
 		r.St.Errors.Add(1)
 		if done != nil {
 			done(0, time.Since(start))
 		}
-		return
+		return pipeResult{dialErr: err, d: time.Since(start)}
 	}
 	defer u.Close()
 	if len(first) > 0 {
 		if _, err := u.Write(first); err != nil {
-			return
+			return pipeResult{d: time.Since(start), upFirst: true}
 		}
 	}
 	var got atomic.Int64
-	ch := make(chan struct{}, 2)
+	ch := make(chan bool, 2) // true - закончилось направление сервер -> приложение
 	go func() {
 		io.Copy(u, c)
 		if tc, ok := u.(*net.TCPConn); ok {
 			tc.CloseWrite()
 		}
-		ch <- struct{}{}
+		ch <- false
 	}()
 	go func() {
 		n, _ := io.Copy(c, u)
@@ -357,9 +427,9 @@ func (r *Router) pipeVia(c net.Conn, up, target string, first []byte, done func(
 		if tc, ok := c.(*net.TCPConn); ok {
 			tc.CloseWrite()
 		}
-		ch <- struct{}{}
+		ch <- true
 	}()
-	<-ch
+	upFirst := <-ch
 	// вторую сторону даём доделать, но не держим вечно
 	select {
 	case <-ch:
@@ -368,6 +438,7 @@ func (r *Router) pipeVia(c net.Conn, up, target string, first []byte, done func(
 	if done != nil {
 		done(got.Load(), time.Since(start))
 	}
+	return pipeResult{got: got.Load(), d: time.Since(start), upFirst: upFirst}
 }
 
 // ---------- Telegram ----------

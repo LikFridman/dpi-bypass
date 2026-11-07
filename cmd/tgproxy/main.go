@@ -13,9 +13,11 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	svc "dpibypass/check"
@@ -23,6 +25,7 @@ import (
 	"dpibypass/router"
 	"dpibypass/speed"
 	"dpibypass/tg"
+	"dpibypass/vpn"
 )
 
 type multi []string
@@ -65,6 +68,8 @@ func main() {
 	checkWS := flag.Bool("check-ws", false, "проверить маршрут WebSocket к web.telegram.org (через -socks, если задан) и выйти")
 	discover := flag.Bool("discover", false, "найти и проверить публичные MTProto-прокси, вывести лучшие и выйти")
 	want := flag.Int("want", 3, "сколько лучших прокси вывести (-discover)")
+	vpnTest := flag.String("vpn-test", "", "проверить серверы VPN из JSON-файла {xray, links, telegram, speed}, вывести VPNTEST <json> и выйти")
+	warp := flag.Bool("warp", false, "зарегистрировать бесплатный Cloudflare WARP (через -socks, если задан), вывести WARP <json> и выйти")
 	var ups, srcs multi
 	flag.Var(&ups, "up", "внешний прокси: tg://proxy?... или socks5://host:port (можно несколько)")
 	flag.Var(&srcs, "src", "адрес списка прокси для -discover (можно несколько)")
@@ -101,6 +106,27 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Printf("CHECK OK %d\n", d.Milliseconds())
+		return
+	}
+	if *vpnTest != "" {
+		runVPNTest(*vpnTest)
+		return
+	}
+	if *warp {
+		ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+		var dial func(ctx context.Context, network, addr string) (net.Conn, error)
+		if *socks != "" {
+			s := *socks
+			dial = func(ctx context.Context, network, addr string) (net.Conn, error) { return tg.SocksDial(s, addr) }
+		}
+		a, err := vpn.RegisterWarp(ctx, dial)
+		cancel()
+		if err != nil {
+			fmt.Printf("ERR %v\n", err)
+			os.Exit(1)
+		}
+		b, _ := json.Marshal(map[string]any{"account": a, "links": a.Links()})
+		fmt.Printf("WARP %s\n", b)
 		return
 	}
 	if *discover {
@@ -311,10 +337,15 @@ func runRouter(path string) {
 	}
 	r := router.New(cfg)
 	r.Log = func(format string, a ...any) { fmt.Println("LOG " + fmt.Sprintf(format, a...)) }
+	r.XraySetup = childSetup
 	if err := r.Listen(); err != nil {
 		fmt.Printf("ERR %v\n", err)
 		os.Exit(1)
 	}
+	// остановка приложением: сначала Xray, потом выход
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+	go func() { <-sig; r.Close(); os.Exit(0) }()
 	fmt.Printf("READY %s\n", r.Addr())
 	for {
 		time.Sleep(10 * time.Second)
@@ -326,7 +357,54 @@ func runRouter(path string) {
 		st, _ := json.Marshal(map[string]any{"tcp": r.St.TCP.Load(), "udp": r.St.UDP.Load(), "quic_dropped": r.St.QUICDropped.Load(),
 			"tg_direct": r.St.TGDirect.Load(), "tg_ws": r.St.TGWS.Load(), "errors": r.St.Errors.Load(), "groups": groups,
 			"dns": r.St.DNS.Load(), "dns_fail": r.St.DNSFail.Load(), "doh": r.DNSStats(),
-			"ipv6": r.IPv6(), "aaaa_empty": r.St.AAAAEmpty.Load(), "ipv6_refused": r.St.IPv6Refused.Load()})
+			"ipv6": r.IPv6(), "aaaa_empty": r.St.AAAAEmpty.Load(), "ipv6_refused": r.St.IPv6Refused.Load(),
+			"routes": r.Routes(), "vpn": r.VPNAlive()})
 		fmt.Printf("RSTATS %s\n", st)
 	}
+}
+
+// runVPNTest - проверка серверов VPN (для приложения): VPNTEST [{id, ok, ping, tg, kbps, err}...]
+func runVPNTest(path string) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Printf("ERR %v\n", err)
+		os.Exit(2)
+	}
+	var req struct {
+		Xray     string   `json:"xray"`
+		Links    []string `json:"links"`
+		Sources  []string `json:"sources"` // откуда ссылка (own, sub, free, warp) - по порядку
+		Telegram bool     `json:"telegram"`
+		Speed    int      `json:"speed"`
+		Timeout  int      `json:"timeout"` // с
+	}
+	if err := json.Unmarshal(b, &req); err != nil {
+		fmt.Printf("ERR %v\n", err)
+		os.Exit(2)
+	}
+	var list []*vpn.Server
+	var bad []vpn.Result
+	for i, l := range req.Links {
+		s, err := vpn.Parse(l)
+		if err != nil {
+			bad = append(bad, vpn.Result{Err: "ссылка: " + err.Error(), Link: l})
+			continue
+		}
+		if i < len(req.Sources) {
+			s.Source = req.Sources[i]
+		}
+		list = append(list, s)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+	o := vpn.TestOpts{Telegram: req.Telegram, Speed: req.Speed, Setup: childSetup}
+	if req.Timeout > 0 {
+		o.Timeout = time.Duration(req.Timeout) * time.Second
+	}
+	res := vpn.Test(ctx, req.Xray, list, o)
+	for i := range res {
+		res[i].Link = list[i].Link
+	}
+	out, _ := json.Marshal(append(res, bad...))
+	fmt.Printf("VPNTEST %s\n", out)
 }

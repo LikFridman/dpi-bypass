@@ -98,7 +98,13 @@ object UiTest {
         alive("Re-tune")
 
         // DNS приложений (запросы из оболочки эмулятора во время теста) должен идти через DoH маршрутизатора
-        val rs = runCatching { org.json.JSONObject(Pool.routerStats) }.getOrNull()
+        // после «Re-tune» маршрутизатор перезапущен и счётчики с нуля: ждём запросов оболочки (до 60 с)
+        var rs = runCatching { org.json.JSONObject(Pool.routerStats) }.getOrNull()
+        for (i in 0 until 30) {
+            if ((rs?.optLong("dns") ?: 0) > 0) break
+            Thread.sleep(2000)
+            rs = runCatching { org.json.JSONObject(Pool.routerStats) }.getOrNull()
+        }
         val dnsQ = rs?.optLong("dns") ?: 0
         val dnsFail = rs?.optLong("dns_fail") ?: 0
         val doh = rs?.optJSONObject("doh")

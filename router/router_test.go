@@ -286,3 +286,92 @@ func TestWithIPv6(t *testing.T) {
 		t.Fatal("не дошло до byedpi")
 	}
 }
+
+// Маршрут сервиса: основной способ не соединяется - сразу запасной; после трёх «сервер молчит»
+// основной помечается сломанным и выбирается запасной
+func TestRouteFailover(t *testing.T) {
+	got := make(chan string, 8)
+	backup := fakeSocks(t, got)
+	defer backup.Close()
+	dead, _ := net.Listen("tcp", "127.0.0.1:0")
+	deadAddr := dead.Addr().String()
+	dead.Close() // порт закрыт - соединиться нельзя
+
+	r := New(Config{Listen: "127.0.0.1:0", Default: backup.Addr().String(), Groups: []Group{
+		{Name: "YouTube", Upstreams: []string{deadAddr, backup.Addr().String()}, Domains: []string{"youtube.com"}},
+	}})
+	r.V6Check = func() bool { return false }
+	if err := r.Listen(); err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	for i := 0; i < 4; i++ {
+		c := socksConnect(t, r.Addr(), "142.250.1.1:443")
+		c.Write(clientHello("www.youtube.com"))
+		c.SetReadDeadline(time.Now().Add(3 * time.Second))
+		b := make([]byte, 2)
+		if _, err := io.ReadFull(c, b); err != nil || string(b) != "ok" {
+			t.Fatalf("соединение %d не прошло через запасной: %v", i, err)
+		}
+		c.Close()
+		<-got
+	}
+	ri := r.Routes()
+	if len(ri) != 1 || ri[0].Active != backup.Addr().String() {
+		t.Fatalf("активный способ: %+v", ri)
+	}
+	if !ri[0].Ups[0].Bad {
+		t.Fatal("основной способ должен быть помечен сломанным")
+	}
+}
+
+// Telegram: соединение приложения (MTProto к адресу Telegram) идёт по способу VPN (SOCKS) как есть,
+// а способы tg-ws/tg-proxy для обычных сайтов telegram.org пропускаются
+func TestRouteTelegramKinds(t *testing.T) {
+	got := make(chan string, 8)
+	vpnUp := fakeSocks(t, got)
+	defer vpnUp.Close()
+	other := make(chan string, 8)
+	def := fakeSocks(t, other)
+	defer def.Close()
+	r := New(Config{Listen: "127.0.0.1:0", Default: def.Addr().String(), Groups: []Group{
+		{Name: "Telegram", Upstreams: []string{UpTGProxy, vpnUp.Addr().String()}, Domains: []string{"telegram.org"},
+			CIDRs: []string{"149.154.160.0/20"}, Check: "tg"},
+	}})
+	r.V6Check = func() bool { return false }
+	r.Listen()
+	defer r.Close()
+	// MTProto: прокси нет (tg-proxy не сработает) - VPN
+	c := socksConnect(t, r.Addr(), "149.154.167.51:443")
+	init := make([]byte, 64)
+	for i := range init {
+		init[i] = byte(i*7 + 3)
+	}
+	c.Write(init)
+	select {
+	case s := <-got:
+		if !strings.HasPrefix(s, "149.154.167.51:443|") {
+			t.Fatal(s)
+		}
+	case <-time.After(4 * time.Second):
+		t.Fatal("MTProto не ушёл в VPN")
+	}
+	c.Close()
+	// сайт telegram.org: tg-proxy пропущен, сразу VPN
+	c = socksConnect(t, r.Addr(), "149.154.167.99:443")
+	c.Write(clientHello("web.telegram.org"))
+	select {
+	case s := <-got:
+		if !strings.HasPrefix(s, "149.154.167.99:443|") {
+			t.Fatal(s)
+		}
+	case <-time.After(4 * time.Second):
+		t.Fatal("сайт Telegram не ушёл в VPN")
+	}
+	c.Close()
+	select {
+	case s := <-other:
+		t.Fatalf("ничего не должно идти мимо маршрута: %s", s)
+	default:
+	}
+}

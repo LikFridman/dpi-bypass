@@ -168,10 +168,11 @@ func newTGCrypto(clientInit, secret, relayInit []byte, relaySecret ...[]byte) *t
 	}
 	c := &tgCrypto{}
 	pk := clientInit[tgSkipLen : tgSkipLen+tgPrekeyLen+tgIVLen]
-	c.cltDec = ctrStream(withSecret(pk[:tgPrekeyLen], secret), pk[tgPrekeyLen:])
+	// secret == nil - прямое подключение приложения (без прокси): ключи берутся как есть
+	c.cltDec = ctrStream(relayKey(pk[:tgPrekeyLen], secret), pk[tgPrekeyLen:])
 	c.cltDec.XORKeyStream(make([]byte, 64), make([]byte, 64)) // пропустить приветствие
 	rpk := reversed(pk)
-	c.cltEnc = ctrStream(withSecret(rpk[:tgPrekeyLen], secret), rpk[tgPrekeyLen:])
+	c.cltEnc = ctrStream(relayKey(rpk[:tgPrekeyLen], secret), rpk[tgPrekeyLen:])
 
 	tk := relayInit[tgSkipLen : tgSkipLen+tgPrekeyLen+tgIVLen]
 	c.tgEnc = ctrStream(relayKey(tk[:tgPrekeyLen], rs), tk[tgPrekeyLen:])

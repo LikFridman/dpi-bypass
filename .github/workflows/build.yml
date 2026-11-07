@@ -169,13 +169,37 @@ jobs:
 
       - name: Прокси Telegram для Android (Go)
         run: |
-          go test ./tg ./router ./check
+          go test ./tg ./router ./check ./doh ./vpn
           for pair in arm64-v8a:arm64 armeabi-v7a:arm x86_64:amd64; do
             abi="${pair%%:*}"; arch="${pair##*:}"
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch GOARM=7 go build -trimpath -ldflags="-s -w" \
               -o android/app/src/main/jniLibs/$abi/libtgproxy.so ./cmd/tgproxy
           done
           ls -la android/app/src/main/jniLibs/*/libtgproxy.so
+
+      - name: Xray (VPN) для Android и проверка VPN на настоящих серверах
+        env:
+          XRAY_VERSION: v26.10.31
+        run: |
+          set -e
+          mkdir -p "$RUNNER_TEMP/xray"
+          get() { # архив, файл внутри, куда положить
+            curl -fsSL -o "$RUNNER_TEMP/xray/$1" "https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/$1"
+            curl -fsSL -o "$RUNNER_TEMP/xray/$1.dgst" "https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/$1.dgst"
+            want=$(grep -i 'SHA2-256' "$RUNNER_TEMP/xray/$1.dgst" | head -1 | awk '{print $NF}')
+            got=$(sha256sum "$RUNNER_TEMP/xray/$1" | awk '{print $1}')
+            [ "$want" = "$got" ] || { echo "контрольная сумма $1 не совпала"; exit 1; }
+            mkdir -p "$RUNNER_TEMP/xray/${1%.zip}"
+            unzip -oq "$RUNNER_TEMP/xray/$1" -d "$RUNNER_TEMP/xray/${1%.zip}"
+            install -m 755 "$RUNNER_TEMP/xray/${1%.zip}/xray" "$3"
+          }
+          get Xray-android-arm64-v8a.zip xray android/app/src/main/jniLibs/arm64-v8a/libxray.so
+          get Xray-android-amd64.zip xray android/app/src/main/jniLibs/x86_64/libxray.so
+          get Xray-linux-arm32-v7a.zip xray android/app/src/main/jniLibs/armeabi-v7a/libxray.so
+          get Xray-linux-64.zip xray "$RUNNER_TEMP/xray-linux"
+          ls -la android/app/src/main/jniLibs/*/libxray.so
+          # ссылки разбираются и Xray их принимает; бесплатные серверы и WARP проверяются по-настоящему
+          XRAY="$RUNNER_TEMP/xray-linux" go test -v -count=1 -timeout 15m ./vpn 2>&1 | tee vpn-test.txt | grep -E "^(=== RUN|--- |OK |WARP |    xray_test|ok|FAIL|PASS)|работают|не принято|не зарегистр" | head -120
 
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -238,4 +262,5 @@ jobs:
             dpi-bypass.apk
             dpi-bypass.apk.sha256
             android-selftest.txt
+            vpn-test.txt
             docs/screens

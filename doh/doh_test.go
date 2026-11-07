@@ -123,8 +123,11 @@ func TestServfailWhenDown(t *testing.T) {
 	if err != nil || buf[3]&0x0F != 2 {
 		t.Fatalf("ожидался SERVFAIL: %v %x", err, buf[:n])
 	}
-	if !strings.Contains(r.Stats.LastError, "DoH") {
-		t.Fatalf("ошибка: %q", r.Stats.LastError)
+	r.Stats.Lock()
+	le := r.Stats.LastError
+	r.Stats.Unlock()
+	if !strings.Contains(le, "DoH") {
+		t.Fatalf("ошибка: %q", le)
 	}
 }
 

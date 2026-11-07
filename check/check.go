@@ -153,23 +153,35 @@ func short(s string) string {
 	return s
 }
 
-// ping - время TCP-соединения через dial
-func ping(ctx context.Context, dial Dial, host string) (int, error) {
+// ping - настоящая задержка до сайта по этому маршруту: TCP-соединение и рукопожатие TLS с именем
+// сайта (через SOCKS время одного TCP-соединения ничего не значит - VPN-клиент отвечает сразу).
+// phase - на каком шаге ошибка (connect или tls).
+func ping(ctx context.Context, dial Dial, host string) (ms int, phase string, err error) {
 	t := time.Now()
 	addr := host
-	if _, _, err := net.SplitHostPort(host); err != nil {
+	name := host
+	if h, _, e := net.SplitHostPort(host); e == nil {
+		name = h
+	} else {
 		addr = net.JoinHostPort(host, "443")
 	}
 	c, err := dial(ctx, "tcp", addr)
 	if err != nil {
-		return 0, err
+		return 0, "connect", err
 	}
-	c.Close()
-	ms := int(time.Since(t).Milliseconds())
+	defer c.Close()
+	if dl, ok := ctx.Deadline(); ok {
+		c.SetDeadline(dl)
+	}
+	tc := tls.Client(c, &tls.Config{ServerName: name, RootCAs: testRoots, NextProtos: []string{"h2", "http/1.1"}})
+	if err := tc.HandshakeContext(ctx); err != nil {
+		return 0, "tls", err
+	}
+	ms = int(time.Since(t).Milliseconds())
 	if ms < 1 {
 		ms = 1
 	}
-	return ms, nil
+	return ms, "", nil
 }
 
 // fetch качает URL до max байт или до maxTime; возвращает скачанное (для страницы) и скорость
@@ -268,9 +280,9 @@ func Run(ctx context.Context, s Site, dial Dial, o Options) (r Result) {
 		return r
 	}
 
-	p, err := ping(ctx, dial, s.Host)
+	p, phase, err := ping(ctx, dial, s.Host)
 	if err != nil {
-		r.Stage, r.Reason = classify(err, 0, "connect")
+		r.Stage, r.Reason = classify(err, 0, phase)
 		return r
 	}
 	r.Ping = p
