@@ -33,7 +33,7 @@ var strategiesZ2 = []Strategy{
 	{"z5", "zapret2: multisplit + seqovl", []string{"--lua-desync=multisplit:pos=1:seqovl=568"}},
 	{"z6", "zapret2: fake (случайный SNI) + multisplit", []string{"--lua-desync=fake:blob=fake_default_tls:tcp_md5:repeats=6:tls_mod=rnd,rndsni", "--lua-desync=multisplit:pos=1,midsld"}},
 	{"z7", "zapret2: fakeddisorder, autottl", []string{"--lua-desync=fakeddisorder:pos=midsld:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:tcp_md5"}},
-	{"z8", "zapret2: fake ttl + multidisorder по sniext", []string{"--lua-desync=fake:blob=fake_default_tls:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=6", "--lua-desync=multidisorder:pos=1,sniext+1"}},
+	{"z8", "zapret2: fake ttl + multidisorder по sniext", []string{"--lua-desync=fake:blob=fake_default_tls:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:tcp_md5:repeats=6", "--lua-desync=multidisorder:pos=1,sniext+1"}},
 }
 
 // z2Files - файлы winws2 (в той же сборке zapret-win-bundle)
